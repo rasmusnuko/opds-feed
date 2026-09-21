@@ -1,0 +1,18 @@
+services:
+  opds-feed:
+    build: .
+    image: opds-feed
+    container_name: opds-feed
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Inside the container we must listen on all interfaces; the published port below
+      # is what actually controls who can reach it.
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DATA_DIR: /data
+    ports:
+      # Bound to loopback: your existing TLS reverse proxy is the only way in.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/data
