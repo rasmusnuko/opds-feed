@@ -12,12 +12,15 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "hash-password": "tsx src/scripts/hash-password.ts"
+    "typecheck": "tsc -p tsconfig.test.json",
+    "hash-password": "tsx src/scripts/hash-password.ts",
+    "test": "tsx --test test/*.test.ts",
+    "vault-demo": "tsx src/scripts/vault-demo.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "@mozilla/readability": "^0.5.0",
+    "@noble/hashes": "^2.4.0",
     "better-sqlite3": "^11.7.0",
     "fast-xml-parser": "^4.5.1",
     "hono": "^4.6.14",
