@@ -34,6 +34,8 @@ app.use('*', async (c, next) => {
     path: new URL(c.req.url).pathname,
     status: c.res.status,
     ms: Date.now() - started,
+    // The one field that tells an e-reader from a browser when a feed "fails".
+    ua: c.req.header('user-agent') ?? null,
   });
 });
 
