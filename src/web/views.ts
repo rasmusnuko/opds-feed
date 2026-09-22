@@ -3,24 +3,30 @@ import type { ArticleRow, FeedRow, UserRow } from '../db.js';
 import { escapeHtml, formatBytes, formatDate } from '../util/text.js';
 
 const STYLES = `
+/* Palette lifted from openrouter.ai's stylesheet (shadcn-style HSL tokens): indigo
+   primary, near-black zinc dark theme, Plus Jakarta Sans. Just the colours — no marks. */
 :root {
-  --bg: #fbfbfa;
+  --bg: #fcfcfd;
   --panel: #ffffff;
-  --text: #1b1b1b;
-  --muted: #6b6b6b;
-  --border: #e3e3e0;
-  --accent: #2f5d50;
-  --danger: #a33a30;
+  --text: #1c2024;
+  --muted: hsl(240 3.8% 46.1%);
+  --border: hsl(240 5.9% 90%);
+  --accent: hsl(239 84% 67%);
+  --accent-fg: hsl(240 50% 99.2%);
+  --success: hsl(154.9 100% 37.5%);
+  --danger: hsl(346.8 77.2% 49.8%);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #17181a;
-    --panel: #1f2023;
-    --text: #ececec;
-    --muted: #9a9a9a;
-    --border: #33353a;
-    --accent: #7fc0ab;
-    --danger: #e08076;
+    --bg: hsl(224 7% 4%);
+    --panel: hsl(240 10% 3.9%);
+    --text: hsl(206 6% 88%);
+    --muted: hsl(240 5% 64.9%);
+    --border: hsl(240 4.7% 24.9%);
+    --accent: hsl(239 84% 67%);
+    --accent-fg: hsl(240 50% 99.2%);
+    --success: hsl(142 71% 65%);
+    --danger: hsl(346.8 77.2% 60%);
   }
 }
 * { box-sizing: border-box; }
@@ -28,7 +34,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 16px/1.5 "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 .wrap { max-width: 900px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 header { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: baseline; justify-content: space-between; margin-bottom: 1.5rem; }
@@ -47,7 +53,7 @@ input[type=url], input[type=text] {
 input.tags { flex: 0 1 10rem; }
 button {
   padding: 0.6rem 1.1rem; border: 0; border-radius: 8px; cursor: pointer;
-  background: var(--accent); color: var(--panel); font-size: 1rem; font-weight: 600;
+  background: var(--accent); color: var(--accent-fg); font-size: 1rem; font-weight: 600;
 }
 button.secondary { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 400; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
 button.danger { background: transparent; color: var(--danger); border: 1px solid var(--border); font-weight: 400; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
@@ -63,7 +69,7 @@ ul.items li:last-child { border-bottom: 0; }
 .item-meta { color: var(--muted); font-size: 0.85rem; word-break: break-word; }
 .item-actions { display: flex; gap: 0.4rem; flex: 0 0 auto; }
 .pill { display: inline-block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid var(--border); border-radius: 999px; padding: 0.05rem 0.5rem; color: var(--muted); }
-.pill.ready { color: var(--accent); border-color: var(--accent); }
+.pill.ready { color: var(--success); border-color: var(--success); }
 .pill.failed { color: var(--danger); border-color: var(--danger); }
 .err-text { color: var(--danger); font-size: 0.85rem; word-break: break-word; }
 code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
@@ -94,6 +100,8 @@ export function layout(title: string, activePath: string, base: string, body: st
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${escapeHtml(title)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap"/>
 <style>${STYLES}</style>
 </head>
 <body>
