@@ -17,7 +17,7 @@ import {
   statusCounts,
   type ArticleScope,
 } from '../store.js';
-import { removeArticleFiles } from '../storage.js';
+import { removeArticleFiles, removeSnapshot } from '../storage.js';
 import { parsePage, resolveBase } from '../util/base.js';
 import { collapseWhitespace } from '../util/text.js';
 import { parseHttpUrl } from '../util/url.js';
@@ -134,6 +134,7 @@ webRoutes.post('/articles/:id/delete', async (c) => {
   const article = deleteArticle(c.req.param('id'));
   if (!article) return redirect(c, '/', { err: 'That article no longer exists.' });
   await removeArticleFiles(article);
+  await removeSnapshot(article.id);
   return redirect(c, '/', { ok: 'Deleted.' });
 });
 

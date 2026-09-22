@@ -33,18 +33,46 @@ JSON templating.
 
 ## Browser bookmarklet
 
-The **Connect** page in the web UI prints this with your own host and token filled
-in. Drag it to the bookmarks bar and click it on any article:
+The **Connect** page in the web UI prints two bookmarklets with your own host and
+token filled in. Drag one to the bookmarks bar and click it on any article.
+
+**Send the page** (recommended) posts the page as your browser currently shows it.
+The server converts that copy, so it works for sites you are logged in to, paywalls
+you pay for, bot walls and pages built by JavaScript. If you highlight part of the
+page first, only that part becomes the article:
+
+```js
+javascript:(function(){var f=document.createElement('form');f.method='post';f.enctype='multipart/form-data';f.acceptCharset='utf-8';f.target='_blank';f.action='https://books.example.com/api/add?token=YOUR_TOKEN';function a(n,v){var t=document.createElement('textarea');t.name=n;t.value=v;f.appendChild(t);}var s=window.getSelection(),d=document.createElement('div');if(s&&!s.isCollapsed){for(var i=0;i<s.rangeCount;i++)d.appendChild(s.getRangeAt(i).cloneContents());}a('url',location.href);a('title',document.title);a('html',document.documentElement.outerHTML);if(d.innerHTML)a('selection',d.innerHTML);f.style.display='none';document.body.appendChild(f);f.submit();f.remove();})()
+```
+
+Some sites have a Content Security Policy that stops pages from submitting forms to
+other sites, and there the click does nothing. Use **Send the link** instead, which
+only passes the URL and lets the server fetch the page:
 
 ```js
 javascript:(function(){window.open('https://books.example.com/api/add?token=YOUR_TOKEN&url='+encodeURIComponent(location.href),'_blank');})()
 ```
 
-It opens a small tab confirming the article was queued.
+Both open a small tab confirming the article was queued.
 
 Note that the token is visible in the bookmarklet and in the URL, so it ends up in
-browser history. Issue a separate token for it if that bothers you — `API_TOKENS`
+browser history. Issue a separate token for it if that bothers you. `API_TOKENS`
 takes a comma-separated list, and you can drop one without touching the others.
+
+### Sending the page from iOS
+
+In Shortcuts, add **Run JavaScript on Web Page** before **Get Contents of URL**, with:
+
+```js
+completion(JSON.stringify({ url: location.href, title: document.title,
+  html: document.documentElement.outerHTML,
+  selection: (() => { const s = getSelection(), d = document.createElement('div');
+    for (let i = 0; i < s.rangeCount; i++) d.appendChild(s.getRangeAt(i).cloneContents());
+    return d.innerHTML; })() }));
+```
+
+Then, in **Get Contents of URL**, set the method to POST, add the header `Content-Type: application/json`, and set **Request Body** to **File** with the JavaScript result. The
+shortcut must accept **Safari web pages** as input.
 
 ## Command line
 

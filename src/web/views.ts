@@ -271,9 +271,20 @@ export function feedsPage(options: { base: string; feeds: FeedRow[]; ok?: string
 export function helpPage(base: string, token: string | null): string {
   const catalogUrl = `${base}/opds`;
   const tokenValue = token ?? '<your API_TOKENS value>';
-  const bookmarklet = `javascript:(function(){window.open('${base}/api/add?token=${encodeURIComponent(
-    tokenValue,
-  )}&url='+encodeURIComponent(location.href),'_blank');})()`;
+  const tokenParam = encodeURIComponent(tokenValue);
+  const bookmarklet = `javascript:(function(){window.open('${base}/api/add?token=${tokenParam}&url='+encodeURIComponent(location.href),'_blank');})()`;
+  // Posts the page as rendered in the browser (plus any highlighted selection) so the
+  // server needs neither the user's logins nor the page's JavaScript.
+  const pageBookmarklet =
+    `javascript:(function(){var f=document.createElement('form');f.method='post';` +
+    `f.enctype='multipart/form-data';f.acceptCharset='utf-8';f.target='_blank';` +
+    `f.action='${base}/api/add?token=${tokenParam}';` +
+    `function a(n,v){var t=document.createElement('textarea');t.name=n;t.value=v;f.appendChild(t);}` +
+    `var s=window.getSelection(),d=document.createElement('div');` +
+    `if(s&&!s.isCollapsed){for(var i=0;i<s.rangeCount;i++)d.appendChild(s.getRangeAt(i).cloneContents());}` +
+    `a('url',location.href);a('title',document.title);a('html',document.documentElement.outerHTML);` +
+    `if(d.innerHTML)a('selection',d.innerHTML);` +
+    `f.style.display='none';document.body.appendChild(f);f.submit();f.remove();})()`;
 
   return layout(
     'Connect',
@@ -302,7 +313,9 @@ Content-Type: application/json
 
 <h2>Browser bookmarklet</h2>
 <div class="panel">
-  <p>Drag this to your bookmarks bar, then click it on any article:</p>
+  <p><strong>Send the page</strong> (recommended). Sends the page as your browser shows it, so logins, paywalls you pay for and JavaScript-only sites work. Highlight the article first to use exactly that part:</p>
+  <pre>${escapeHtml(pageBookmarklet)}</pre>
+  <p><strong>Send the link only.</strong> The server fetches the page itself. Use this on sites whose security policy blocks the one above (nothing happens when you click it):</p>
   <pre>${escapeHtml(bookmarklet)}</pre>
   ${token ? '' : '<p class="err-text">Set API_TOKENS in your environment to get a working bookmarklet.</p>'}
 </div>

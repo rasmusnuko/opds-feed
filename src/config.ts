@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function env(name: string, fallback?: string): string | undefined {
   const raw = process.env[name];
@@ -52,6 +53,10 @@ function oneOf<T extends string>(name: string, allowed: readonly T[], fallback: 
 
 const dataDir = path.resolve(env('DATA_DIR', './data')!);
 
+// Rules shipped with the app live next to src/ and dist/.
+const bundledSiteRules = fileURLToPath(new URL('../site-rules', import.meta.url));
+const siteRulesDirs = list('SITE_RULES_DIRS').map((dir) => path.resolve(dir));
+
 // Trailing slashes in the public URL leak into every link we generate, so strip them once here.
 const publicUrl = (env('PUBLIC_URL', 'http://localhost:8080')!).replace(/\/+$/, '');
 
@@ -64,6 +69,8 @@ export const config = {
   dataDir,
   booksDir: path.join(dataDir, 'books'),
   coversDir: path.join(dataDir, 'covers'),
+  // Pages a browser sent along with the URL, kept so a retry converts the same HTML.
+  snapshotsDir: path.join(dataDir, 'snapshots'),
   databasePath: env('DATABASE_PATH', path.join(dataDir, 'opds-feed.sqlite'))!,
 
   catalogTitle: env('CATALOG_TITLE', 'Articles')!,
@@ -93,6 +100,14 @@ export const config = {
     maxBytes: int('FETCH_MAX_BYTES', 10 * 1024 * 1024, 64 * 1024),
     // Fetching user-supplied URLs server side is an SSRF vector; refuse private targets by default.
     allowPrivateAddresses: bool('FETCH_ALLOW_PRIVATE_ADDRESSES', false),
+  },
+
+  extract: {
+    // Earlier directories win, so a local rule overrides a bundled or vendored one.
+    siteRulesDirs:
+      siteRulesDirs.length > 0 ? siteRulesDirs : [path.join(dataDir, 'site-rules'), bundledSiteRules],
+    // Cap on HTML a bookmarklet or shortcut may upload with a URL.
+    maxSubmittedBytes: int('SUBMIT_MAX_BYTES', 10 * 1024 * 1024, 64 * 1024),
   },
 
   // Reader-compatibility knobs. The defaults suit small greyscale e-ink screens but nothing

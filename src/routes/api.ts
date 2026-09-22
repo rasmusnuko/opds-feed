@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { config } from '../config.js';
 import { pollAllFeeds, fetchFeed } from '../ingest/rss.js';
 import { submitUrl } from '../ingest/submit.js';
@@ -16,7 +17,7 @@ import {
   statusCounts,
   type ArticleScope,
 } from '../store.js';
-import { removeArticleFiles } from '../storage.js';
+import { removeArticleFiles, removeSnapshot } from '../storage.js';
 import { tick } from '../ingest/queue.js';
 import { resolveBase } from '../util/base.js';
 import { collapseWhitespace, escapeHtml } from '../util/text.js';
@@ -29,6 +30,18 @@ interface SubmitBody {
   url?: string;
   tags?: string[];
   title?: string | null;
+  html?: string | null;
+  selection?: string | null;
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/** Form fields may arrive as text or, from `curl -F html=@page.html` and shortcuts, as a file. */
+async function formText(value: unknown): Promise<string | null> {
+  if (value instanceof File) return optionalString(await value.text());
+  return optionalString(value);
 }
 
 function parseTags(value: unknown): string[] {
@@ -50,6 +63,8 @@ async function readSubmitBody(c: Context): Promise<SubmitBody> {
       url: typeof body.url === 'string' ? body.url : undefined,
       tags: parseTags(body.tags),
       title: typeof body.title === 'string' ? body.title : null,
+      html: optionalString(body.html),
+      selection: optionalString(body.selection),
     };
   }
 
@@ -59,6 +74,8 @@ async function readSubmitBody(c: Context): Promise<SubmitBody> {
       url: typeof body.url === 'string' ? body.url : undefined,
       tags: parseTags(body.tags),
       title: typeof body.title === 'string' ? body.title : null,
+      html: await formText(body.html),
+      selection: await formText(body.selection),
     };
   }
 
@@ -87,12 +104,19 @@ function articleJson(article: ArticleRow, base: string): Record<string, unknown>
     error: article.error,
     attempts: article.attempts,
     downloadedAt: article.downloaded_at,
+    extractor: article.extractor,
     download: article.status === 'ready' ? `${base}/download/${article.id}.epub` : null,
     cover: article.cover_path ? `${base}/covers/${article.id}.jpg` : null,
   };
 }
 
-apiRoutes.post('/articles', async (c) => {
+// Requests may carry a whole page of HTML (step 8), so cap them explicitly.
+const submitBodyLimit = bodyLimit({
+  maxSize: config.extract.maxSubmittedBytes,
+  onError: (c) => c.json({ error: `Request body is over the ${config.extract.maxSubmittedBytes} byte limit` }, 413),
+});
+
+apiRoutes.post('/articles', submitBodyLimit, async (c) => {
   const body = await readSubmitBody(c);
   const url = body.url ?? c.req.query('url');
 
@@ -107,7 +131,12 @@ apiRoutes.post('/articles', async (c) => {
   }
 
   try {
-    const result = submitUrl(url, { tags: body.tags, title: body.title });
+    const result = submitUrl(url, {
+      tags: body.tags,
+      title: body.title,
+      html: body.html,
+      selection: body.selection,
+    });
     const base = resolveBase(c);
     return c.json(
       {
@@ -123,16 +152,9 @@ apiRoutes.post('/articles', async (c) => {
   }
 });
 
-/**
- * GET-based ingest for bookmarklets and share shortcuts that cannot send a POST body.
- * Auth still applies (`?token=` or Basic).
- */
-apiRoutes.get('/add', (c) => {
-  const url = c.req.query('url');
-  if (!url) return c.text('Missing ?url=\n', 400);
-
+function confirmationPage(c: Context, url: string, options: Parameters<typeof submitUrl>[1]): Response {
   try {
-    const result = submitUrl(url, { tags: parseTags(c.req.query('tags')) });
+    const result = submitUrl(url, options);
     const title = escapeHtml(result.article.title);
     const state = result.created ? 'Queued' : result.requeued ? 'Requeued' : 'Already saved';
     return c.html(
@@ -147,6 +169,38 @@ apiRoutes.get('/add', (c) => {
   } catch (error) {
     return c.text(`${error instanceof Error ? error.message : 'Could not queue URL'}\n`, 400);
   }
+}
+
+/**
+ * GET-based ingest for bookmarklets and share shortcuts that cannot send a POST body.
+ * Auth still applies (`?token=` or Basic).
+ */
+apiRoutes.get('/add', (c) => {
+  const url = c.req.query('url');
+  if (!url) return c.text('Missing ?url=\n', 400);
+  return confirmationPage(c, url, { tags: parseTags(c.req.query('tags')) });
+});
+
+/**
+ * Form-POST ingest for the bookmarklet that sends the rendered page (and any selection)
+ * along with the URL. A plain form submit needs no CORS, and answers with a page the
+ * new tab can show.
+ */
+apiRoutes.post('/add', submitBodyLimit, async (c) => {
+  const body = await readSubmitBody(c);
+  const url = body.url ?? c.req.query('url');
+  if (!url) return c.text('A "url" field is required\n', 400);
+  try {
+    parseHttpUrl(url);
+  } catch (error) {
+    return c.text(`${error instanceof Error ? error.message : 'Invalid URL'}\n`, 400);
+  }
+  return confirmationPage(c, url, {
+    tags: body.tags ?? parseTags(c.req.query('tags')),
+    title: body.title,
+    html: body.html,
+    selection: body.selection,
+  });
 });
 
 apiRoutes.get('/articles', (c) => {
@@ -189,6 +243,7 @@ apiRoutes.delete('/articles/:id', async (c) => {
   const article = deleteArticle(c.req.param('id'));
   if (!article) return c.json({ error: 'Not found' }, 404);
   await removeArticleFiles(article);
+  await removeSnapshot(article.id);
   return c.json({ deleted: article.id });
 });
 

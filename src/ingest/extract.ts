@@ -1,7 +1,8 @@
-import { Readability } from '@mozilla/readability';
-import { JSDOM, VirtualConsole } from 'jsdom';
-import { collapseWhitespace, countWords, stripControlChars, truncate } from '../util/text.js';
+import { errorFields, log } from '../logger.js';
+import { collapseWhitespace, countWords, truncate } from '../util/text.js';
 import { cleanUrl, hostLabel } from '../util/url.js';
+import { parseHtml } from './dom.js';
+import { LOCATORS, type Located, type LocateContext } from './locate/index.js';
 
 export interface ExtractedArticle {
   title: string;
@@ -14,6 +15,8 @@ export interface ExtractedArticle {
   leadImageUrl: string | null;
   textContent: string;
   wordCount: number;
+  /** Name of the locator that found the body (see locate/index.ts). */
+  extractor: string;
   /** Sanitised article body. Images still point at their remote URLs. */
   content: Element;
   /** Keeps the owning window alive; call when the DOM is no longer needed. */
@@ -295,21 +298,18 @@ function dropDuplicateHeading(root: Element, title: string | null): void {
   }
 }
 
-function fallbackContent(doc: Document): Element | null {
-  const candidates = ['article', 'main', '[role="main"]', '#content', '.post', '.entry-content', 'body'];
-  for (const selector of candidates) {
-    const element = doc.querySelector(selector);
-    if (element && countWords(element.textContent ?? '') > 50) return element;
-  }
-  return null;
+export interface ExtractOptions {
+  /** HTML of the part of the page the user selected in their browser. */
+  selection?: string | null;
 }
 
-export function extractArticle(html: string, url: string): ExtractedArticle {
-  // jsdom logs every CSS parse error from the wild web; silence it.
-  const virtualConsole = new VirtualConsole();
-  virtualConsole.on('jsdomError', () => {});
+function hasArticleText(content: Element): boolean {
+  const text = collapseWhitespace(content.textContent ?? '');
+  return text.length >= 120 || content.querySelector('img') !== null;
+}
 
-  const dom = new JSDOM(stripControlChars(html), { url, virtualConsole });
+export async function extractArticle(html: string, url: string, options: ExtractOptions = {}): Promise<ExtractedArticle> {
+  const dom = parseHtml(html, url);
   const doc = dom.window.document;
 
   const canonicalHref = doc.querySelector('link[rel="canonical"]')?.getAttribute('href');
@@ -355,47 +355,50 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
   ]);
 
   const htmlLang = doc.documentElement.getAttribute('lang');
-
-  // Readability mutates the document, so every metadata read above happens first.
-  let parsed: ReturnType<Readability['parse']> = null;
-  try {
-    parsed = new Readability(doc, { charThreshold: 250 }).parse();
-  } catch {
-    parsed = null;
-  }
-
-  let content: Element;
-  if (parsed?.content) {
-    const holder = doc.createElement('div');
-    holder.innerHTML = parsed.content;
-    // Readability wraps everything in <div id="readability-page-1">; unwrap it.
-    const inner = holder.querySelector('#readability-page-1');
-    content = inner ?? holder;
-  } else {
-    const fallback = fallbackContent(doc);
-    if (!fallback) {
-      dom.window.close();
-      throw new Error('Could not find any article text on the page');
-    }
-    content = fallback;
-  }
-
-  // Relative links and images resolve against the document we actually fetched, not the
-  // canonical link, which may sit on a different path.
-  sanitize(content, url);
-  dropDuplicateHeading(content, metaTitle ?? parsed?.title ?? null);
-
-  const textContent = collapseWhitespace(content.textContent ?? '');
-  if (textContent.length < 120 && content.querySelector('img') === null) {
-    dom.window.close();
-    throw new Error('Extracted article was empty (paywall, JavaScript-only page, or bot wall?)');
-  }
-
   const headline = typeof jsonLd?.headline === 'string' ? collapseWhitespace(jsonLd.headline) : null;
+
+  // Walk the fallback chain. Locators never touch `doc`, so each one sees the page as fetched.
+  const ctx: LocateContext = { doc, html, url, selection: options.selection ?? null };
+  let located: Located | null = null;
+  let extractor = '';
+  for (const locator of LOCATORS) {
+    let candidate: Located | null;
+    try {
+      candidate = await locator.locate(ctx);
+    } catch (error) {
+      log.warn('locator failed', { locator: locator.name, url, ...errorFields(error) });
+      continue;
+    }
+    if (!candidate) continue;
+
+    // Relative links and images resolve against the document we actually fetched, not the
+    // canonical link, which may sit on a different path.
+    sanitize(candidate.content, url);
+    const candidateTitle = candidate.overrides?.title ?? metaTitle ?? headline ?? candidate.fallbacks?.title ?? null;
+    dropDuplicateHeading(candidate.content, candidateTitle);
+
+    if (hasArticleText(candidate.content)) {
+      located = candidate;
+      extractor = locator.name;
+      break;
+    }
+    log.debug('locator result was empty', { locator: locator.name, url });
+    candidate.dispose?.();
+  }
+
+  if (!located) {
+    dom.window.close();
+    throw new Error('Could not find any article text on the page (paywall, JavaScript-only page, or bot wall?)');
+  }
+
+  const { content, overrides = {}, fallbacks = {} } = located;
+  const textContent = collapseWhitespace(content.textContent ?? '');
+
   const title =
+    overrides.title ??
     metaTitle ??
     headline ??
-    parsed?.title ??
+    fallbacks.title ??
     collapseWhitespace(doc.querySelector('h1')?.textContent ?? '') ??
     '';
 
@@ -404,9 +407,10 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
       ? (jsonLd.publisher as JsonLdNode).name
       : undefined;
 
-  const excerptSource = metaDescription ?? parsed?.excerpt ?? textContent;
+  const excerptSource = metaDescription ?? fallbacks.excerpt ?? textContent;
 
   const publishedAt =
+    normaliseDate(overrides.publishedAt ?? null) ??
     normaliseDate(metaPublished) ??
     normaliseDate(typeof jsonLd?.datePublished === 'string' ? jsonLd.datePublished : null) ??
     normaliseDate(typeof jsonLd?.dateCreated === 'string' ? jsonLd.dateCreated : null);
@@ -424,11 +428,15 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
 
   return {
     title: truncate(title.length > 0 ? title : (hostLabel(canonicalUrl) ?? 'Untitled'), 300),
-    byline: metaByline ?? jsonLdAuthor(jsonLd) ?? (parsed?.byline ? collapseWhitespace(parsed.byline) : null),
+    byline:
+      overrides.byline ??
+      metaByline ??
+      jsonLdAuthor(jsonLd) ??
+      (fallbacks.byline ? collapseWhitespace(fallbacks.byline) : null),
     siteName:
       metaSite ??
       (typeof publisher === 'string' ? collapseWhitespace(publisher) : null) ??
-      parsed?.siteName ??
+      fallbacks.siteName ??
       hostLabel(canonicalUrl),
     excerpt: excerptSource ? truncate(excerptSource, 400) : null,
     language: htmlLang ? htmlLang.split(',')[0]!.trim().slice(0, 10) : null,
@@ -437,7 +445,11 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     leadImageUrl,
     textContent,
     wordCount: words,
+    extractor,
     content,
-    dispose: () => dom.window.close(),
+    dispose: () => {
+      located.dispose?.();
+      dom.window.close();
+    },
   };
 }

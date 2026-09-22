@@ -8,6 +8,11 @@ and news sites. It goes wrong on pages that are mostly link lists, on pages buil
 JavaScript, on paywalls, and on sites where the comments or "related" boxes score higher
 than the body.
 
+**Status:** the chosen fallback order is 8 → 1 → 4 → 7. Steps 8 (page and selection
+sent by the browser), 1 (site rules) and 4 (Readability) are implemented. The
+multi-library part of 4 and step 7 are stubs in `src/ingest/locate/stubs.ts`. The chain
+itself is in `src/ingest/locate/index.ts`.
+
 The options below can be combined. Each one returns a candidate `Element` that the
 existing `sanitize()`, `dropDuplicateHeading()` and the EPUB code can use unchanged.
 

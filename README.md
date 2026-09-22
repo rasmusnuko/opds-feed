@@ -88,6 +88,12 @@ curl -X POST https://your-domain/api/articles \
 
 # GET, for bookmarklets and anything that cannot send a body
 curl "https://your-domain/api/add?token=$TOKEN&url=https%3A%2F%2Fexample.com%2Farticle"
+
+# send the page HTML yourself (and optionally just the article part); the server then
+# converts that instead of fetching the URL
+curl -X POST https://your-domain/api/articles \
+  -H "Authorization: Bearer $TOKEN" \
+  -F url=https://example.com/article -F html=@saved-page.html
 ```
 
 The call returns immediately with `202` and a queued article; conversion happens in
@@ -102,8 +108,9 @@ fetched, converted and shelved automatically, optionally under a tag.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/articles` | Queue a URL. JSON, form or plain-text body. |
+| `POST` | `/api/articles` | Queue a URL. JSON, form or plain-text body. Optional `html` and `selection` fields. |
 | `GET` | `/api/add?url=` | Queue a URL via GET (bookmarklets). |
+| `POST` | `/api/add` | Form version of the above that also takes `html` and `selection` (the page-sending bookmarklet). Answers with a small HTML page. |
 | `GET` | `/api/articles` | List articles. `?q=`, `?site=`, `?tag=`, `?limit=`, `?offset=`. |
 | `GET` | `/api/articles/:id` | One article. |
 | `POST` | `/api/articles/:id/retry` | Fetch and convert it again. |
@@ -113,6 +120,22 @@ fetched, converted and shelved automatically, optionally under a tag.
 | `POST` | `/api/feeds/poll` | Poll every feed now. |
 | `GET` | `/api/status` | Queue counts and catalogue URL. |
 | `GET` | `/healthz` | Unauthenticated liveness probe. |
+
+## How the article is found
+
+Each page goes through a chain of steps, and the first one that produces article text
+wins. The step that won is stored on the article as `extractor`, which the API returns.
+
+1. **selection**: you highlighted the article in your browser and sent it with the
+   page-sending bookmarklet.
+2. **site-rules**: a hand-written rule for the site. See [site-rules/README.md](site-rules/README.md).
+3. **readability**: Mozilla Readability's general-purpose scoring.
+4. *ensemble* and *llm*: planned, currently stubs. See [docs/article-extraction-options.md](docs/article-extraction-options.md).
+5. **selectors**: last resort, the first `<article>`, `<main>` or similar container with text in it.
+
+If the page's HTML was sent with the URL (by the page-sending bookmarklet or the API's
+`html` field), the server uses it instead of fetching the URL. It keeps that copy, so
+**Retry** converts the same HTML again.
 
 ## Configuration
 

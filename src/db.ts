@@ -34,6 +34,8 @@ export interface ArticleRow {
   downloaded_at: string | null;
   download_count: number;
   feed_id: string | null;
+  /** Which locator found the article body on the last conversion. */
+  extractor: string | null;
 }
 
 export interface FeedRow {
@@ -83,7 +85,8 @@ CREATE TABLE IF NOT EXISTS articles (
   thumb_path TEXT,
   downloaded_at TEXT,
   download_count INTEGER NOT NULL DEFAULT 0,
-  feed_id TEXT
+  feed_id TEXT,
+  extractor TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles (status);
@@ -126,6 +129,7 @@ function addColumnIfMissing(table: string, column: string, definition: string): 
 }
 
 addColumnIfMissing('articles', 'canonical_url', 'TEXT');
+addColumnIfMissing('articles', 'extractor', 'TEXT');
 
 export function nowIso(): string {
   return new Date().toISOString();
