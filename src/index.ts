@@ -23,7 +23,8 @@ if (countUsers() === 0) {
   );
 }
 
-const app = new Hono();
+// strict:false so /opds/ is /opds — a trailing slash is the commonest thing a person types.
+const app = new Hono({ strict: false });
 
 app.use('*', async (c, next) => {
   const started = Date.now();

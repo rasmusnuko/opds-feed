@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { config } from '../config.js';
 import type { ArticleRow } from '../db.js';
 import {
@@ -21,7 +21,7 @@ import {
   type NavigationEntry,
 } from './feed.js';
 
-export const opdsRoutes = new Hono();
+export const opdsRoutes = new Hono({ strict: false });
 
 function recentSince(): string {
   return new Date(Date.now() - config.feed.recentDays * 24 * 60 * 60 * 1000).toISOString();
@@ -75,7 +75,7 @@ function renderAcquisition(options: AcquisitionOptions): Response {
   return feedResponse(xml, ACQUISITION_TYPE);
 }
 
-opdsRoutes.get('/', (c) => {
+const rootFeed = (c: Context) => {
   const base = resolveBase(c);
   const since = recentSince();
 
@@ -132,7 +132,14 @@ opdsRoutes.get('/', (c) => {
   });
 
   return feedResponse(xml, NAVIGATION_TYPE);
-});
+};
+
+// Small readers fail the whole catalogue on any non-200, and this route is the one a
+// person types by hand. So the root answers however it is written: with a trailing
+// slash, and at /opds/opds — which CrossPoint firmware before 0.16 requested by
+// appending /opds to whatever URL was entered.
+opdsRoutes.get('/', rootFeed);
+opdsRoutes.get('/opds', rootFeed);
 
 opdsRoutes.get('/search.xml', (c) =>
   new Response(openSearchDescription(resolveBase(c)), {
