@@ -1,0 +1,39 @@
+# books.arbi.dk — opds-feed, proxied to the container on :8090.
+#
+# IPv6 is not optional here. books.arbi.dk publishes an AAAA record pointing at this
+# box, and every other vhost on it carries both families. A block listening only on
+# IPv4 does not quietly miss IPv6 traffic: requests for this name over IPv6 go to
+# whichever block is the default for [::]:80, which on this box is arbi.dk. That is
+# the failure that served test.arbi.dk's certificate to arbi.dk's visitors in
+# September 2026 — see backend/arbi-test.nginx in the arbi repo.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name books.arbi.dk;
+
+    # No auth_basic here, deliberately — unlike test.arbi.dk.
+    #
+    # opds-feed does its own HTTP Basic on every feed, cover and download. E-readers
+    # can only answer one Basic realm, so a second one at this layer is not defence in
+    # depth, it is a 401 loop the reader cannot escape. nginx passes the Authorization
+    # header through to the proxy untouched, which is exactly what is wanted.
+
+    # An article with many images is not nothing.
+    client_max_body_size 4m;
+
+    location / {
+        proxy_pass         http://127.0.0.1:8090;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+
+        # Small readers pull the whole EPUB in one go on a slow link. The 60s used for
+        # arbi's API is too short for that; don't buffer the file through nginx either.
+        proxy_read_timeout 120s;
+        proxy_buffering    off;
+    }
+}
