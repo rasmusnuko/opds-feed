@@ -1,5 +1,8 @@
-import { db, nowIso, type ArticleRow, type ArticleStatus, type FeedRow } from './db.js';
+import { config } from './config.js';
+import { db, nowIso, type ArticleRow, type ArticleStatus, type FeedRow, type UserRow } from './db.js';
+import { log } from './logger.js';
 import { newId } from './util/ids.js';
+import { hashPassword } from './util/password.js';
 
 export type ArticleScope =
   | { kind: 'all' }
@@ -355,4 +358,54 @@ export function tagsForArticles(ids: string[]): Map<string, string[]> {
     else result.set(row.article_id, [row.tag]);
   }
   return result;
+}
+
+// ---------------------------------------------------------------- users
+
+/**
+ * Credentials live here rather than in the environment so they can be changed
+ * without editing .env and restarting the container. The environment is still
+ * where the *first* user comes from — see seedUsersFromEnv — because a fresh
+ * deployment has no other way to let anybody in.
+ */
+export function listUsers(): UserRow[] {
+  return db.prepare('SELECT * FROM users ORDER BY username').all() as UserRow[];
+}
+
+export function findUser(username: string): UserRow | undefined {
+  return db.prepare('SELECT * FROM users WHERE username = ?').get(username) as UserRow | undefined;
+}
+
+export function countUsers(): number {
+  return (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
+}
+
+/** Insert or replace one user. The caller hashes; plaintext never reaches the table. */
+export function putUser(username: string, passwordHash: string): void {
+  db.prepare(
+    `INSERT INTO users (username, password_hash, added_at) VALUES (?, ?, ?)
+     ON CONFLICT (username) DO UPDATE SET password_hash = excluded.password_hash`,
+  ).run(username, passwordHash, nowIso());
+}
+
+export function deleteUser(username: string): boolean {
+  return db.prepare('DELETE FROM users WHERE username = ?').run(username).changes > 0;
+}
+
+/**
+ * Put the environment's password in the table the first time the table is empty.
+ *
+ * Only when empty: once an account has been added or a password changed on the Users
+ * page, the environment is stale by definition, and re-applying it on every restart
+ * would silently undo that — and resurrect a removed account on the next deploy. So
+ * OPDS_USERNAME/OPDS_PASSWORD are a seed, not a source of truth, and the .env comments
+ * say so. Plaintext rather than a hash because every real hash format begins with `$`,
+ * which Docker Compose interpolates inside an env_file.
+ */
+export async function seedUsersFromEnv(): Promise<void> {
+  if (countUsers() > 0) return;
+  const { username, password } = config.auth;
+  if (!password) return;
+  putUser(username, await hashPassword(password));
+  log.info('seeded the first user from the environment', { username });
 }

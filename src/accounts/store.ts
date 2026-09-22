@@ -1,8 +1,28 @@
 import type { Database } from 'better-sqlite3';
 import type { RecoverySecrets, StoredKdf, WrappedSecrets } from '../crypto/keys.js';
 import { newId } from '../util/ids.js';
-import { constantTimeEquals, SCRYPT_PREFIX, hashPassword, verifyScrypt } from '../util/password.js';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { applyAccountSchema } from './schema.js';
+
+// The vault's proof-of-possession hash. node:crypto scrypt, synchronous, because this
+// store is synchronous throughout and is not wired into the running server yet.
+// ponytail: when the vault ships, move this onto util/password.ts (argon2, async).
+const AUTH_KEY_PREFIX = 'scrypt:';
+const AUTH_KEY_LEN = 32;
+
+function hashAuthKey(key: string): string {
+  const salt = randomBytes(16);
+  return `${AUTH_KEY_PREFIX}${salt.toString('base64')}:${scryptSync(key, salt, AUTH_KEY_LEN).toString('base64')}`;
+}
+
+function authKeyMatches(key: string, stored: string): boolean {
+  if (!stored.startsWith(AUTH_KEY_PREFIX)) return false;
+  const [saltPart, hashPart, extra] = stored.slice(AUTH_KEY_PREFIX.length).split(':');
+  if (!saltPart || !hashPart || extra !== undefined) return false;
+  const expected = Buffer.from(hashPart, 'base64');
+  if (expected.length !== AUTH_KEY_LEN) return false;
+  return timingSafeEqual(scryptSync(key, Buffer.from(saltPart, 'base64'), AUTH_KEY_LEN), expected);
+}
 
 export type UserStatus = 'active' | 'suspended' | 'terminated';
 
@@ -113,7 +133,7 @@ export function createAccountStore(db: Database) {
         JSON.stringify(input.keys.kdf),
         // The login proof is already high entropy, but hashing it means a stolen database
         // still cannot be replayed against the login endpoint.
-        hashPassword(input.keys.authKey),
+        hashAuthKey(input.keys.authKey),
         input.keys.wrappedMaster,
         input.keys.recoveryKdf ? JSON.stringify(input.keys.recoveryKdf) : null,
         input.keys.wrappedMasterRecovery ?? null,
@@ -148,9 +168,7 @@ export function createAccountStore(db: Database) {
       if (!row) return undefined;
 
       const stored = row.auth_hash;
-      const valid = stored.startsWith(SCRYPT_PREFIX)
-        ? verifyScrypt(authKey, stored)
-        : constantTimeEquals(authKey, stored);
+      const valid = authKeyMatches(authKey, stored);
 
       if (!valid || row.status !== 'active') return undefined;
       return toAccount(row);
@@ -163,7 +181,7 @@ export function createAccountStore(db: Database) {
           `UPDATE users SET kdf_json = ?, auth_hash = ?, wrapped_master = ?, updated_at = ?
            WHERE id = ?`,
         )
-        .run(JSON.stringify(secrets.kdf), hashPassword(secrets.authKey), secrets.wrappedMaster, nowIso(), id).changes;
+        .run(JSON.stringify(secrets.kdf), hashAuthKey(secrets.authKey), secrets.wrappedMaster, nowIso(), id).changes;
 
       if (changed === 0) throw new Error(`No such account: ${id}`);
     },

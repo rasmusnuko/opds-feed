@@ -2,19 +2,24 @@ import './env.js';
 
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import { apiAuth, basicAuth } from './auth.js';
 import { config } from './config.js';
 import { startFeedPoller, stopFeedPoller } from './ingest/rss.js';
 import { startQueue, stopQueue } from './ingest/queue.js';
 import { errorFields, log } from './logger.js';
 import { opdsRoutes } from './opds/routes.js';
+import { countUsers, seedUsersFromEnv } from './store.js';
 import { apiRoutes } from './routes/api.js';
 import { fileRoutes } from './routes/files.js';
 import { webRoutes } from './web/routes.js';
 
-if (!config.auth.password && !config.auth.passwordHash) {
+// Credentials live in the database so the Users page can change them. The environment
+// fills the table only when it is empty, which is what lets a fresh deployment in.
+await seedUsersFromEnv();
+if (countUsers() === 0) {
   throw new Error(
-    'Set OPDS_PASSWORD_HASH (recommended, see `npm run hash-password`) or OPDS_PASSWORD before starting.',
+    'No accounts exist. Set OPDS_USERNAME and OPDS_PASSWORD so the first one can be created.',
   );
 }
 
@@ -35,6 +40,9 @@ app.use('*', async (c, next) => {
 app.get('/healthz', (c) => c.json({ ok: true }));
 
 app.onError((error, c) => {
+  // Hono's auth and csrf middleware refuse a request by throwing; those carry their own
+  // status and headers (the Basic challenge lives there) and are not internal errors.
+  if (error instanceof HTTPException) return error.getResponse();
   log.error('unhandled request error', { path: new URL(c.req.url).pathname, ...errorFields(error) });
   return c.text('Internal error\n', 500);
 });

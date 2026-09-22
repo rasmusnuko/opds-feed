@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import type { ArticleRow, FeedRow } from '../db.js';
+import type { ArticleRow, FeedRow, UserRow } from '../db.js';
 import { escapeHtml, formatBytes, formatDate } from '../util/text.js';
 
 const STYLES = `
@@ -78,6 +78,7 @@ export function layout(title: string, activePath: string, base: string, body: st
   const nav = [
     ['/', 'Articles'],
     ['/feeds', 'Feeds'],
+    ['/users', 'Users'],
     ['/help', 'Connect'],
   ]
     .map(
@@ -315,4 +316,66 @@ Content-Type: application/json
   -d '{"url": "https://example.com/article", "tags": ["longread"]}'</pre>
 </div>`,
   );
+}
+
+export function usersPage(opts: {
+  base: string;
+  users: UserRow[];
+  current: string | null;
+  ok: string | undefined;
+  err: string | undefined;
+}): string {
+  const rows = opts.users
+    .map((user) => {
+      const isSelf = user.username === opts.current;
+      const last = opts.users.length === 1;
+      // The two ways to lock yourself out of your own catalogue, both refused server
+      // side as well — this only explains why the button is not there.
+      const why = last ? 'the only account' : isSelf ? 'signed in as this account' : '';
+      const remove = why
+        ? `<span class="item-meta">${escapeHtml(why)}</span>`
+        : `<form method="post" action="/users/${encodeURIComponent(user.username)}/delete">` +
+          `<button class="danger" type="submit">Remove</button></form>`;
+      return `<li>
+  <div class="item-main">
+    <div class="item-title">${escapeHtml(user.username)}${isSelf ? ' <span class="pill">you</span>' : ''}</div>
+    <div class="item-meta">added ${escapeHtml(formatDate(user.added_at))}</div>
+    <form method="post" action="/users/${encodeURIComponent(user.username)}/password" class="add" style="margin-top:0.5rem">
+      <input type="password" name="password" placeholder="New password" autocomplete="new-password" minlength="8" required/>
+      <button class="secondary" type="submit">Change password</button>
+    </form>
+  </div>
+  <div class="item-actions">${remove}</div>
+</li>`;
+    })
+    .join('');
+
+  const body = `${flash(opts.ok, opts.err)}
+<div class="panel">
+  <h2 style="margin-top:0">Add an account</h2>
+  <form method="post" action="/users/add" class="add">
+    <input type="text" name="username" placeholder="Username" pattern="[A-Za-z0-9._-]{1,32}" required autocomplete="off"/>
+    <input type="password" name="password" placeholder="Password (8+ characters)" minlength="8" required autocomplete="new-password"/>
+    <button type="submit">Add</button>
+  </form>
+  <p class="item-meta" style="margin-bottom:0">
+    Every account can read the whole catalogue and change any account, including this
+    page. There are no roles &mdash; add people you would hand the password to anyway.
+  </p>
+</div>
+
+<h2>Accounts</h2>
+<div class="panel"><ul class="items">${rows}</ul></div>
+
+<div class="panel" style="margin-top:1rem">
+  <p class="item-meta" style="margin:0">
+    These are the credentials your e-reader uses. Changing a password here takes effect
+    immediately &mdash; readers that stored the old one will ask again.
+    <code>OPDS_USERNAME</code> and <code>OPDS_PASSWORD_HASH</code> in <code>.env</code>
+    only seed the first account on an empty database; after that this page is the
+    source of truth.
+  </p>
+</div>`;
+
+  return layout('Users', '/users', opts.base, body);
 }

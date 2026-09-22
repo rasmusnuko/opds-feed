@@ -1,100 +1,58 @@
-import type { Context, MiddlewareHandler, Next } from 'hono';
+import { randomBytes } from 'node:crypto';
+import type { Context, MiddlewareHandler } from 'hono';
+import { basicAuth as honoBasicAuth } from 'hono/basic-auth';
+import { bearerAuth } from 'hono/bearer-auth';
+import { timingSafeEqual } from 'hono/utils/buffer';
 import { config } from './config.js';
-import { constantTimeEquals, SCRYPT_PREFIX, verifyScrypt } from './util/password.js';
+import { findUser } from './store.js';
+import { hashPassword, verifyPassword } from './util/password.js';
 
-export function verifyPassword(password: string): boolean {
-  const { passwordHash, password: plaintext } = config.auth;
-  if (passwordHash) {
-    return passwordHash.startsWith(SCRYPT_PREFIX)
-      ? verifyScrypt(password, passwordHash)
-      : constantTimeEquals(password, passwordHash);
+/**
+ * Header parsing, the realm challenge, the 401s and every comparison are Hono's own
+ * middleware. This file only says where users and tokens come from.
+ */
+
+/**
+ * A hash of a secret nobody knows, made with the same parameters as a real one, so an
+ * unknown username costs the same verify as a known one. Skipping the derivation on a
+ * miss would let response time say which names exist.
+ */
+const ABSENT_USER_HASH = await hashPassword(randomBytes(32).toString('hex'));
+
+/** HTTP Basic against the users table. Every catalogue, cover and download route. */
+export const basicAuth: MiddlewareHandler = honoBasicAuth({
+  realm: config.auth.realm,
+  verifyUser: async (username, password, c) => {
+    const user = findUser(username);
+    const ok = await verifyPassword(password, user?.password_hash ?? ABSENT_USER_HASH);
+    if (user === undefined || !ok) return false;
+    c.set('user', username);
+    return true;
+  },
+});
+
+/** The username basicAuth accepted on this request, for routes that need it. */
+export function basicUser(c: Context): string | null {
+  return (c.get('user') as string | undefined) ?? null;
+}
+
+const tokenAuth: MiddlewareHandler | null =
+  config.auth.apiTokens.length > 0 ? bearerAuth({ token: config.auth.apiTokens }) : null;
+
+async function isApiToken(candidate: string): Promise<boolean> {
+  for (const token of config.auth.apiTokens) {
+    if (await timingSafeEqual(candidate, token)) return true;
   }
-  if (plaintext) return constantTimeEquals(password, plaintext);
   return false;
 }
 
-export function verifyCredentials(username: string, password: string): boolean {
-  // Always check both halves so a wrong username costs the same as a wrong password.
-  const userOk = constantTimeEquals(username, config.auth.username);
-  const passOk = verifyPassword(password);
-  return userOk && passOk;
-}
-
-export function verifyApiToken(token: string): boolean {
-  return config.auth.apiTokens.some((candidate) => constantTimeEquals(token, candidate));
-}
-
-interface ParsedBasic {
-  username: string;
-  password: string;
-}
-
-function parseBasic(header: string): ParsedBasic | null {
-  const match = /^Basic\s+(.+)$/i.exec(header.trim());
-  if (!match || !match[1]) return null;
-  let decoded: string;
-  try {
-    decoded = Buffer.from(match[1], 'base64').toString('utf8');
-  } catch {
-    return null;
-  }
-  const separator = decoded.indexOf(':');
-  if (separator < 0) return null;
-  return {
-    username: decoded.slice(0, separator),
-    password: decoded.slice(separator + 1),
-  };
-}
-
-function parseBearer(header: string): string | null {
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  return match && match[1] ? match[1].trim() : null;
-}
-
-function unauthorized(c: Context, challenge: boolean): Response {
-  const headers: Record<string, string> = { 'Cache-Control': 'no-store' };
-  if (challenge) {
-    // OPDS clients rely on this challenge to know they should prompt for credentials.
-    headers['WWW-Authenticate'] = `Basic realm="${config.auth.realm}", charset="UTF-8"`;
-  }
-  return c.text('Unauthorized\n', 401, headers);
-}
-
-/** HTTP Basic auth. Required on every catalogue, cover and download route. */
-export const basicAuth: MiddlewareHandler = async (c: Context, next: Next) => {
-  const header = c.req.header('authorization');
-  if (!header) return unauthorized(c, true);
-  const credentials = parseBasic(header);
-  if (!credentials || !verifyCredentials(credentials.username, credentials.password)) {
-    return unauthorized(c, true);
-  }
-  await next();
-  return undefined;
-};
-
-/** Ingest auth: a bearer token from API_TOKENS, or the same Basic credentials. */
-export const apiAuth: MiddlewareHandler = async (c: Context, next: Next) => {
-  const header = c.req.header('authorization');
-  const queryToken = c.req.query('token');
-
-  if (queryToken && verifyApiToken(queryToken)) {
-    await next();
-    return undefined;
-  }
-
-  if (header) {
-    const bearer = parseBearer(header);
-    if (bearer && verifyApiToken(bearer)) {
-      await next();
-      return undefined;
-    }
-    const credentials = parseBasic(header);
-    if (credentials && verifyCredentials(credentials.username, credentials.password)) {
-      await next();
-      return undefined;
-    }
-  }
-
-  // No Basic challenge here: a browser popping up a password box on a failed API call is noise.
-  return unauthorized(c, false);
+/**
+ * Ingest auth: a bearer token — in the header, or as ?token= for bookmarklets and
+ * anything else that cannot set one — or the same Basic credentials.
+ */
+export const apiAuth: MiddlewareHandler = async (c, next) => {
+  const query = c.req.query('token');
+  if (query !== undefined && (await isApiToken(query))) return next();
+  if (tokenAuth && /^bearer\s/i.test(c.req.header('authorization') ?? '')) return tokenAuth(c, next);
+  return basicAuth(c, next);
 };

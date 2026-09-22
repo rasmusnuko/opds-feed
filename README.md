@@ -28,8 +28,7 @@ git clone https://github.com/rasmusnuko/opds-feed.git
 cd opds-feed
 npm install
 
-cp .env.example .env
-npm run hash-password            # prints OPDS_PASSWORD_HASH=... for your .env
+cp .env.example .env             # set OPDS_USERNAME and OPDS_PASSWORD for the first account
 openssl rand -base64 24          # an API token for API_TOKENS
 
 npm run build
@@ -42,7 +41,7 @@ Then open <http://127.0.0.1:8080/>, paste an article URL, and point your reader 
 ### Docker
 
 ```bash
-cp .env.example .env             # fill in OPDS_USERNAME, OPDS_PASSWORD_HASH, PUBLIC_URL, API_TOKENS
+cp .env.example .env             # fill in OPDS_USERNAME, OPDS_PASSWORD, PUBLIC_URL, API_TOKENS
 docker compose up -d --build
 ```
 
@@ -56,7 +55,7 @@ nginx, Caddy and Apache snippets.
 |---|---|
 | Catalogue URL | `https://your-domain/opds` |
 | Authentication | HTTP Basic — **not** Digest |
-| Username / password | `OPDS_USERNAME` and the password you hashed |
+| Username / password | Any account on the **Users** page. `OPDS_USERNAME`/`OPDS_PASSWORD` only seed the first one. |
 
 `PUBLIC_URL` must match the URL your reader connects to, because the links inside
 the feed are absolute. If you leave `PUBLIC_URL` unset, links are derived from the
@@ -145,8 +144,9 @@ the container format. `npm run vault-demo` walks the whole account lifecycle.
 ## Notes on security
 
 - Every catalogue, cover and download route is behind HTTP Basic, and the API needs a
-  bearer token or the same credentials. Passwords are compared in constant time and
-  should be stored as an scrypt hash.
+  bearer token or the same credentials. Both are Hono's own middleware; passwords are
+  argon2id hashes in the database, never in the environment, and an unknown username
+  costs the same verify as a wrong password.
 - The ingest pipeline fetches URLs that anyone holding a token can supply, so it
   refuses to connect to private, loopback, link-local and cloud-metadata addresses.
   `FETCH_ALLOW_PRIVATE_ADDRESSES=true` removes that protection — only set it if you

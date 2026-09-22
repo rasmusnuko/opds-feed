@@ -13,7 +13,6 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc -p tsconfig.test.json",
-    "hash-password": "tsx src/scripts/hash-password.ts",
     "test": "tsx --test test/*.test.ts",
     "vault-demo": "tsx src/scripts/vault-demo.ts"
   },
@@ -21,6 +20,7 @@
     "@hono/node-server": "^1.13.7",
     "@mozilla/readability": "^0.5.0",
     "@noble/hashes": "^2.4.0",
+    "argon2": "^0.41.1",
     "better-sqlite3": "^11.7.0",
     "fast-xml-parser": "^4.5.1",
     "hono": "^4.6.14",

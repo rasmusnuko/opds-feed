@@ -72,7 +72,6 @@ export const config = {
   auth: {
     username: required('OPDS_USERNAME'),
     // Either a scrypt hash (preferred, produced by `npm run hash-password`) or a plaintext password.
-    passwordHash: env('OPDS_PASSWORD_HASH'),
     password: env('OPDS_PASSWORD'),
     realm: env('OPDS_REALM', 'opds-feed')!,
     // Extra bearer tokens for the ingest API. Basic auth is always accepted too.

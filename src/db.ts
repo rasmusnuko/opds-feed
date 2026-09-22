@@ -36,6 +36,13 @@ export interface ArticleRow {
   feed_id: string | null;
 }
 
+export interface UserRow {
+  username: string;
+  /** Always a scrypt$salt$hash string. Plaintext never reaches this table. */
+  password_hash: string;
+  added_at: string;
+}
+
 export interface FeedRow {
   id: string;
   url: string;
@@ -107,6 +114,12 @@ CREATE TABLE IF NOT EXISTS feeds (
   enabled INTEGER NOT NULL DEFAULT 1,
   last_polled_at TEXT,
   last_error TEXT,
+  added_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  username TEXT PRIMARY KEY,
+  password_hash TEXT NOT NULL,
   added_at TEXT NOT NULL
 );
 

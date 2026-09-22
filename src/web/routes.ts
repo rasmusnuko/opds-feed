@@ -1,4 +1,6 @@
-import { Hono, type Context, type Next } from 'hono';
+import { Hono, type Context } from 'hono';
+import { csrf } from 'hono/csrf';
+import { basicUser } from '../auth.js';
 import { config } from '../config.js';
 import { pollAllFeeds, fetchFeed } from '../ingest/rss.js';
 import { tick } from '../ingest/queue.js';
@@ -10,8 +12,13 @@ import {
   deleteArticle,
   deleteFeed,
   getArticle,
+  countUsers,
+  deleteUser,
+  findUser,
   listArticles,
   listFeeds,
+  listUsers,
+  putUser,
   resetAttempts,
   setFeedEnabled,
   statusCounts,
@@ -19,48 +26,18 @@ import {
 } from '../store.js';
 import { removeArticleFiles } from '../storage.js';
 import { parsePage, resolveBase } from '../util/base.js';
+import { hashPassword } from '../util/password.js';
 import { collapseWhitespace } from '../util/text.js';
 import { parseHttpUrl } from '../util/url.js';
-import { articlesPage, feedsPage, helpPage } from './views.js';
+import { articlesPage, feedsPage, helpPage, usersPage } from './views.js';
 
 export const webRoutes = new Hono();
 
 const PAGE_SIZE = 30;
 
-/**
- * Browsers replay cached Basic credentials on cross-site form posts, so every
- * state-changing form checks that the request came from this origin.
- */
-const sameOrigin = async (c: Context, next: Next) => {
-  if (c.req.method !== 'POST') {
-    await next();
-    return undefined;
-  }
-
-  const origin = c.req.header('origin');
-  const referer = c.req.header('referer');
-  const expected = resolveBase(c);
-
-  const source = origin ?? referer;
-  if (!source) {
-    // Form posts from a browser always carry one of the two.
-    return c.text('Missing Origin/Referer\n', 403);
-  }
-
-  try {
-    const sourceOrigin = new URL(source).origin;
-    if (sourceOrigin !== new URL(expected).origin) {
-      return c.text('Cross-origin form post refused\n', 403);
-    }
-  } catch {
-    return c.text('Bad Origin/Referer\n', 403);
-  }
-
-  await next();
-  return undefined;
-};
-
-webRoutes.use('*', sameOrigin);
+// Browsers replay cached Basic credentials on cross-site form posts. The origin to
+// compare against is the public one, not the URL nginx handed us over plain HTTP.
+webRoutes.use('*', csrf({ origin: (origin, c) => origin === new URL(resolveBase(c)).origin }));
 
 function redirect(c: Context, path: string, message: { ok?: string; err?: string }): Response {
   const params = new URLSearchParams();
@@ -184,3 +161,76 @@ webRoutes.post('/feeds/poll', async (c) => {
 webRoutes.get('/help', (c) =>
   c.html(helpPage(resolveBase(c), config.auth.apiTokens[0] ?? null)),
 );
+
+// ---------------------------------------------------------------- users
+
+/** Keeps usernames to what fits in a URL path and an e-reader's keyboard. */
+const USERNAME_RE = /^[A-Za-z0-9._-]{1,32}$/;
+const MIN_PASSWORD = 8;
+
+webRoutes.get('/users', (c) =>
+  c.html(
+    usersPage({
+      base: resolveBase(c),
+      users: listUsers(),
+      current: basicUser(c),
+      ok: c.req.query('ok'),
+      err: c.req.query('err'),
+    }),
+  ),
+);
+
+webRoutes.post('/users/add', async (c) => {
+  const body = await c.req.parseBody();
+  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+
+  if (!USERNAME_RE.test(username)) {
+    return redirect(c, '/users', { err: 'Usernames can use letters, digits, dot, dash and underscore, up to 32.' });
+  }
+  if (password.length < MIN_PASSWORD) {
+    return redirect(c, '/users', { err: `Passwords must be at least ${MIN_PASSWORD} characters.` });
+  }
+  if (findUser(username)) {
+    return redirect(c, '/users', { err: `${username} already exists — change its password instead.` });
+  }
+
+  putUser(username, await hashPassword(password));
+  log.info('user added', { username, by: basicUser(c) });
+  return redirect(c, '/users', { ok: `Added ${username}.` });
+});
+
+webRoutes.post('/users/:username/password', async (c) => {
+  const username = c.req.param('username');
+  const body = await c.req.parseBody();
+  const password = typeof body.password === 'string' ? body.password : '';
+
+  if (!findUser(username)) return redirect(c, '/users', { err: 'No such account.' });
+  if (password.length < MIN_PASSWORD) {
+    return redirect(c, '/users', { err: `Passwords must be at least ${MIN_PASSWORD} characters.` });
+  }
+
+  putUser(username, await hashPassword(password));
+  log.info('password changed', { username, by: basicUser(c) });
+  return redirect(c, '/users', {
+    ok: `Password changed for ${username}. Readers holding the old one will ask again.`,
+  });
+});
+
+webRoutes.post('/users/:username/delete', (c) => {
+  const username = c.req.param('username');
+
+  // Both of these are lockouts, and a catalogue you cannot sign into needs a shell on
+  // the box and a sqlite3 to repair. Refused here as well as hidden in the page,
+  // because the page is not the only thing that can post to this route.
+  if (countUsers() <= 1) {
+    return redirect(c, '/users', { err: 'That is the only account — add another before removing this one.' });
+  }
+  if (username === basicUser(c)) {
+    return redirect(c, '/users', { err: 'That is the account you are signed in as.' });
+  }
+  if (!deleteUser(username)) return redirect(c, '/users', { err: 'No such account.' });
+
+  log.info('user removed', { username, by: basicUser(c) });
+  return redirect(c, '/users', { ok: `Removed ${username}.` });
+});
