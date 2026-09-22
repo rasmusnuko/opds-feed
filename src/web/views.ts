@@ -78,6 +78,7 @@ export function layout(title: string, activePath: string, base: string, body: st
   const nav = [
     ['/', 'Articles'],
     ['/feeds', 'Feeds'],
+    ['/tags', 'Tags'],
     ['/users', 'Users'],
     ['/help', 'Connect'],
   ]
@@ -126,7 +127,7 @@ function statusPill(article: ArticleRow): string {
   return `<span class="pill ${className}">${escapeHtml(label)}</span>`;
 }
 
-function articleItem(article: ArticleRow): string {
+function articleItem(article: ArticleRow, tags: string[]): string {
   const meta = [
     article.site,
     formatDate(article.published_at ?? article.added_at),
@@ -155,6 +156,7 @@ function articleItem(article: ArticleRow): string {
     <div class="item-title">${titleHtml} ${statusPill(article)}</div>
     <div class="item-meta">${escapeHtml(meta)}</div>
     <div class="item-meta"><a href="${escapeHtml(source)}">${escapeHtml(source)}</a></div>
+    ${tags.length > 0 ? `<div class="item-meta">${tags.map((t) => `<span class="pill">${escapeHtml(t)}</span>`).join(' ')}</div>` : ''}
     ${error}
   </div>
   <div class="item-actions">
@@ -165,6 +167,7 @@ function articleItem(article: ArticleRow): string {
 }
 
 export function articlesPage(options: {
+  tags: Map<string, string[]>;
   base: string;
   articles: ArticleRow[];
   counts: Record<string, number>;
@@ -176,7 +179,7 @@ export function articlesPage(options: {
 }): string {
   const items =
     options.articles.length > 0
-      ? `<ul class="items">${options.articles.map(articleItem).join('\n')}</ul>`
+      ? `<ul class="items">${options.articles.map((a) => articleItem(a, options.tags.get(a.id) ?? [])).join('\n')}</ul>`
       : `<p class="item-meta">Nothing here yet. Paste an article URL above.</p>`;
 
   const pager = [
@@ -378,4 +381,25 @@ export function usersPage(opts: {
 </div>`;
 
   return layout('Users', '/users', opts.base, body);
+}
+
+export function tagsPage(opts: { base: string; tags: string[]; enabled: boolean; model: string; ok?: string; err?: string }): string {
+  const status = opts.enabled
+    ? `New articles are tagged by <code>${escapeHtml(opts.model)}</code> as they are converted.`
+    : `Tagging is off: <code>OPENROUTER_API_KEY</code> is not set. The list below still works for tags you add by hand.`;
+  return layout(
+    'Tags',
+    '/tags',
+    opts.base,
+    `${flash(opts.ok, opts.err)}
+<div class="panel">
+  <form method="post" action="/tags">
+    <p class="item-meta" style="margin-top:0">One tag per line (or comma-separated). The model picks up to three of these
+      for each article and never invents its own. Tags show up as a <strong>By tag</strong> shelf in the catalogue.</p>
+    <textarea name="tags" rows="8" style="width:100%;box-sizing:border-box;padding:0.6rem 0.7rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font:inherit">${escapeHtml(opts.tags.join('\n'))}</textarea>
+    <p><button type="submit">Save tags</button></p>
+  </form>
+  <p class="item-meta" style="margin-bottom:0">${status}</p>
+</div>`,
+  );
 }

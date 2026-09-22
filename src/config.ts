@@ -71,7 +71,7 @@ export const config = {
 
   auth: {
     username: required('OPDS_USERNAME'),
-    // Either a scrypt hash (preferred, produced by `npm run hash-password`) or a plaintext password.
+    // Plaintext; only seeds the first account. See seedUsersFromEnv.
     password: env('OPDS_PASSWORD'),
     realm: env('OPDS_REALM', 'opds-feed')!,
     // Extra bearer tokens for the ingest API. Basic auth is always accepted too.
@@ -117,6 +117,12 @@ export const config = {
     enabled: bool('RSS_ENABLED', true),
     pollIntervalMinutes: int('RSS_POLL_INTERVAL_MINUTES', 30, 1),
     maxItemsPerPoll: int('RSS_MAX_ITEMS_PER_POLL', 10, 1),
+  },
+
+  // AI tagging. No key means no tagging, not a startup failure.
+  openrouter: {
+    apiKey: env('OPENROUTER_API_KEY'),
+    model: env('OPENROUTER_MODEL', 'google/gemini-2.5-flash-lite')!,
   },
 
   logLevel: oneOf('LOG_LEVEL', ['debug', 'info', 'warn', 'error'] as const, 'info'),

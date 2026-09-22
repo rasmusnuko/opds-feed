@@ -7,6 +7,7 @@ import { readingMinutes, slugify, truncate } from '../util/text.js';
 import { hostLabel } from '../util/url.js';
 import { buildEpub, serializeBody } from './epub.js';
 import { extractArticle } from './extract.js';
+import { tagArticle } from './tagger.js';
 import { decodeHtml, fetchUrl } from './fetch.js';
 import { generateCover, prepareImages } from './images.js';
 
@@ -97,6 +98,10 @@ export async function processArticle(article: ArticleRow): Promise<ReadyUpdate> 
     };
 
     markReady(article.id, update);
+
+    // After it is ready, never before: a slow or failing model must not hold up or
+    // fail the conversion. tagArticle swallows its own errors.
+    await tagArticle({ id: article.id, title: extracted.title, site, excerpt: update.excerpt, text: extracted.textContent });
     return update;
   } finally {
     extracted.dispose();

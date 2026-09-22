@@ -409,3 +409,21 @@ export async function seedUsersFromEnv(): Promise<void> {
   putUser(username, await hashPassword(password));
   log.info('seeded the first user from the environment', { username });
 }
+
+// ---------------------------------------------------------------- tag vocabulary
+
+/** The site's own tag list: what the tagger may choose from. Empty means "do not tag". */
+export function getTagVocabulary(): string[] {
+  return (db.prepare('SELECT tag FROM tag_vocabulary ORDER BY tag').all() as { tag: string }[]).map((r) => r.tag);
+}
+
+export function setTagVocabulary(tags: string[]): string[] {
+  const clean = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0 && t.length <= 40))];
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM tag_vocabulary').run();
+    const insert = db.prepare('INSERT INTO tag_vocabulary (tag) VALUES (?)');
+    for (const tag of clean) insert.run(tag);
+  });
+  tx();
+  return clean;
+}

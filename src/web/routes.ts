@@ -19,9 +19,12 @@ import {
   listFeeds,
   listUsers,
   putUser,
+  getTagVocabulary,
+  setTagVocabulary,
   resetAttempts,
   setFeedEnabled,
   statusCounts,
+  tagsForArticles,
   type ArticleScope,
 } from '../store.js';
 import { removeArticleFiles } from '../storage.js';
@@ -29,7 +32,7 @@ import { parsePage, resolveBase } from '../util/base.js';
 import { hashPassword } from '../util/password.js';
 import { collapseWhitespace } from '../util/text.js';
 import { parseHttpUrl } from '../util/url.js';
-import { articlesPage, feedsPage, helpPage, usersPage } from './views.js';
+import { articlesPage, feedsPage, helpPage, tagsPage, usersPage } from './views.js';
 
 export const webRoutes = new Hono();
 
@@ -65,6 +68,7 @@ webRoutes.get('/', (c) => {
     articlesPage({
       base: resolveBase(c),
       articles,
+      tags: tagsForArticles(articles.map((a) => a.id)),
       counts: statusCounts(),
       page,
       hasNext: page * PAGE_SIZE < total,
@@ -233,4 +237,28 @@ webRoutes.post('/users/:username/delete', (c) => {
 
   log.info('user removed', { username, by: basicUser(c) });
   return redirect(c, '/users', { ok: `Removed ${username}.` });
+});
+
+// ---------------------------------------------------------------- tags
+
+function tagsView(c: Context, ok?: string, err?: string): Response {
+  return c.html(
+    tagsPage({
+      base: resolveBase(c),
+      tags: getTagVocabulary(),
+      enabled: config.openrouter.apiKey !== undefined,
+      model: config.openrouter.model,
+      ok,
+      err,
+    }),
+  );
+}
+
+webRoutes.get('/tags', (c) => tagsView(c, c.req.query('ok'), c.req.query('err')));
+
+webRoutes.post('/tags', async (c) => {
+  const body = await c.req.parseBody();
+  const raw = typeof body.tags === 'string' ? body.tags : '';
+  const saved = setTagVocabulary(raw.split(/[\n,]/));
+  return redirect(c, '/tags', { ok: saved.length > 0 ? `Saved ${saved.length} tags.` : 'Tag list cleared — tagging is paused.' });
 });

@@ -18,6 +18,8 @@ anything else that speaks OPDS 1.2 all work the same way.
   publication, publish date and canonical link.
 - **Convert** it to a small, well-formed EPUB: sanitised XHTML, a generated typographic
   cover, and images re-encoded to something conservative readers actually render.
+- **Tag** it, optionally: list your own tags on the Tags page and a model (via OpenRouter)
+  files each new article under up to three of them. Nothing is tagged without a key.
 - **Serve** it as an OPDS 1.2 (Atom) catalogue with shelves, search and pagination,
   with HTTP Basic auth on every feed, cover and download.
 
