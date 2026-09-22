@@ -135,9 +135,16 @@ endpoint for the web UI and the ingest API.
 ## Backups
 
 ```bash
-systemctl stop opds-feed     # or: docker compose stop
+# systemd / bare metal
+systemctl stop opds-feed
 tar czf opds-feed-$(date +%F).tar.gz data/
 systemctl start opds-feed
+
+# Docker: the data lives in the named volume `opds-data`, not in ./data
+docker compose stop
+docker run --rm -v opds-feed_opds-data:/data -v "$PWD:/out" busybox \
+    tar czf /out/opds-feed-$(date +%F).tar.gz -C /data .
+docker compose start
 ```
 
 SQLite runs in WAL mode, so copying `data/` while the service is running can catch

@@ -13,6 +13,17 @@ services:
       DATA_DIR: /data
     ports:
       # Bound to loopback: your existing TLS reverse proxy is the only way in.
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8090:8080"
     volumes:
-      - ./data:/data
+      # A named volume, not ./data: a bind mount is created root-owned by dockerd
+      # and masks the image's `chown node:node /data`, so the container (uid 1000)
+      # crash-loops on EACCES. The named volume inherits the image's ownership.
+      - opds-data:/data
+
+    # This box runs a 1.4 GB app next door. A jsdom spike here must not make the
+    # OOM killer pick that one instead: cap the container, and keep it out of swap.
+    mem_limit: 512m
+    memswap_limit: 512m
+
+volumes:
+  opds-data:
