@@ -1,5 +1,14 @@
 # Encrypted vault: design notes
 
+> **Status (2026-09-23): parked, deliberately.** The code in `src/crypto/` and
+> `src/accounts/` is complete and tested and is not wired into the server. The reason
+> is the delivery question below, now answered by the hardware: the only reader in use
+> speaks HTTP Basic and nothing else, so decryption would have to happen on the server
+> with the password each request carries. That defends a stolen disk or a leaked backup
+> and nothing more — and the site is one person's reading list on their own VPS. Not
+> worth a key-unwrap per request until the threat changes. Revisit if a second real user
+> arrives, or if the server ever moves to hardware someone else controls.
+
 This describes the crypto core in `src/crypto/` and `src/accounts/`. It is a standalone
 layer: it seals and opens byte strings and manages account key material, and it knows
 nothing about OPDS, HTTP or where anything is stored.
