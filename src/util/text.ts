@@ -98,3 +98,17 @@ export function stripHtml(value: string): string {
     .replace(/<[^>]*>/g, '');
   return collapseWhitespace(decodeEntities(text));
 }
+
+/** Tags as people type them: "a, b; c d" is four tags. Lowercased and deduped; addTags lowercases too. */
+export function splitTags(raw: unknown): string[] {
+  const items = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
+  const out: string[] = [];
+  for (const item of items) {
+    if (typeof item !== 'string') continue;
+    for (const tag of item.split(/[\s,;]+/)) {
+      const clean = tag.trim().toLowerCase();
+      if (clean.length > 0 && !out.includes(clean)) out.push(clean);
+    }
+  }
+  return out;
+}

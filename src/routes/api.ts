@@ -28,7 +28,7 @@ import {
 } from '../prospects.js';
 import { tick } from '../ingest/queue.js';
 import { resolveBase } from '../util/base.js';
-import { collapseWhitespace, escapeHtml } from '../util/text.js';
+import { collapseWhitespace, escapeHtml, splitTags } from '../util/text.js';
 import { parseHttpUrl } from '../util/url.js';
 import type { ArticleRow } from '../db.js';
 
@@ -41,13 +41,7 @@ interface SubmitBody {
 }
 
 function parseTags(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((tag): tag is string => typeof tag === 'string');
-  }
-  if (typeof value === 'string') {
-    return value.split(',').map((tag) => tag.trim()).filter((tag) => tag.length > 0);
-  }
-  return [];
+  return splitTags(value);
 }
 
 async function readSubmitBody(c: Context): Promise<SubmitBody> {
@@ -304,7 +298,7 @@ apiRoutes.post('/prospects/:id/save', (c) => {
   try {
     const feed = getFeed(prospect.feed_id);
     const result = submitUrl(prospect.url, {
-      tags: feed?.tag ? [feed.tag] : [],
+      tags: splitTags(feed?.tag),
       feedId: prospect.feed_id,
       title: prospect.title,
     });

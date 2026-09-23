@@ -258,7 +258,7 @@ export function articlesPage(options: {
 <div class="panel">
   <form class="add" method="post" action="/add">
     <input type="url" name="url" placeholder="https://example.com/article" required autofocus autocomplete="off"/>
-    <input class="tags" type="text" name="tags" placeholder="tags (optional)" autocomplete="off"/>
+    <input class="tags" type="text" name="tags" placeholder="tags, space or comma separated" autocomplete="off"/>
     <button type="submit">Add</button>
   </form>
 </div>
@@ -286,7 +286,7 @@ export function feedsPage(options: { base: string; feeds: FeedRow[]; ok?: string
     <div class="item-meta">${escapeHtml(feed.url)}</div>
     <div class="item-meta">${
       feed.last_polled_at ? `last polled ${escapeHtml(feed.last_polled_at)}` : 'never polled'
-    }${feed.tag ? ` · tag: ${escapeHtml(feed.tag)}` : ''}</div>
+    }${feed.tag ? ` · tags: ${escapeHtml(feed.tag)}` : ''}</div>
     ${feed.last_error ? `<div class="err-text">${escapeHtml(feed.last_error)}</div>` : ''}
   </div>
   <div class="item-actions">
@@ -312,7 +312,7 @@ export function feedsPage(options: { base: string; feeds: FeedRow[]; ok?: string
 <div class="panel">
   <form class="add" method="post" action="/feeds/add">
     <input type="url" name="url" placeholder="https://example.com/feed.xml" required autocomplete="off"/>
-    <input class="tags" type="text" name="tag" placeholder="tag (optional)" autocomplete="off"/>
+    <input class="tags" type="text" name="tag" placeholder="tags, space or comma separated" autocomplete="off"/>
     <button type="submit">Subscribe</button>
   </form>
 </div>

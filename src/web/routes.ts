@@ -31,7 +31,7 @@ import {
 import { removeArticleFiles } from '../storage.js';
 import { parsePage, resolveBase } from '../util/base.js';
 import { hashPassword } from '../util/password.js';
-import { collapseWhitespace } from '../util/text.js';
+import { collapseWhitespace, splitTags } from '../util/text.js';
 import { parseHttpUrl } from '../util/url.js';
 import { articlesPage, feedsPage, helpPage, prospectsPage, tagsPage, usersPage } from './views.js';
 import type { ProspectStatus } from '../db.js';
@@ -104,10 +104,7 @@ webRoutes.get('/', (c) => {
 webRoutes.post('/add', async (c) => {
   const body = await c.req.parseBody();
   const url = typeof body.url === 'string' ? body.url : '';
-  const tags =
-    typeof body.tags === 'string'
-      ? body.tags.split(',').map((tag) => tag.trim()).filter((tag) => tag.length > 0)
-      : [];
+  const tags = splitTags(body.tags);
 
   if (url.trim().length === 0) {
     return redirect(c, '/', { err: 'Enter a URL first.' });
@@ -147,7 +144,8 @@ webRoutes.get('/feeds', (c) =>
 webRoutes.post('/feeds/add', async (c) => {
   const body = await c.req.parseBody();
   const url = typeof body.url === 'string' ? body.url : '';
-  const tag = typeof body.tag === 'string' && body.tag.trim().length > 0 ? body.tag.trim() : null;
+  const tags = splitTags(body.tag);
+  const tag = tags.length > 0 ? tags.join(', ') : null;
 
   try {
     const parsed = parseHttpUrl(url).toString();
@@ -347,7 +345,7 @@ webRoutes.post('/prospects/:id/save', (c) => {
   try {
     const feed = getFeed(prospect.feed_id);
     const result = submitUrl(prospect.url, {
-      tags: feed?.tag ? [feed.tag] : [],
+      tags: splitTags(feed?.tag),
       feedId: prospect.feed_id,
       title: prospect.title,
     });
@@ -447,7 +445,7 @@ webRoutes.post('/prospects/bulk', async (c) => {
       try {
         const feed = getFeed(prospect.feed_id);
         const result = submitUrl(prospect.url, {
-          tags: feed?.tag ? [feed.tag] : [],
+          tags: splitTags(feed?.tag),
           feedId: prospect.feed_id,
           title: prospect.title,
         });
