@@ -12,7 +12,18 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
   trimValues: true,
+  // The default caps *total* entity expansions at 1000 per document, and a feed whose
+  // items carry HTML in their descriptions — Wikipedia's featured feed, most blogs —
+  // has thousands of &amp; and &lt; in ordinary use. That guard is against
+  // billion-laughs, which needs DOCTYPE-defined entities; maxEntityCount (still 1000)
+  // is the one that actually stops that, so it stays.
+  processEntities: { maxTotalExpansions: 200_000 },
 });
+
+// A feed is not an article. Full-content Atom feeds with a long archive run to 10 MB
+// and more (danluu.com is 128 entries of full text), and the article cap is tuned for
+// jsdom's memory, which never sees a feed.
+const FEED_MAX_BYTES = 32 * 1024 * 1024;
 
 interface FeedItem {
   url: string;
@@ -167,6 +178,7 @@ export function parseFeed(xml: string): ParsedFeed {
 export async function fetchFeed(url: string): Promise<ParsedFeed> {
   const response = await fetchUrl(url, {
     accept: 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5',
+    maxBytes: FEED_MAX_BYTES,
   });
   return parseFeed(decodeHtml(response));
 }

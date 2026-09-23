@@ -30,7 +30,7 @@ offer you 25 items at once. There is select-all, *Skip selected*, *Save selected
 older than 7 days*, and *Skip all from this feed* when a feed filter is active.
 
 **Keyboard**, on desktop: <kbd>j</kbd>/<kbd>k</kbd> to move, <kbd>a</kbd> save,
-<kbd>s</kbd> skip, <kbd>e</kbd> summary. A hundred-item backlog becomes a two-minute pass.
+<kbd>s</kbd> skip, <kbd>l</kbd> summary. A hundred-item backlog becomes a two-minute pass.
 
 Every action is a real form post, so the page works with JavaScript disabled. With
 JavaScript it upgrades to in-place `fetch` calls and the row disappears without a reload.

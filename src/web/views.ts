@@ -571,7 +571,7 @@ const TRIAGE_SCRIPT = `
     post(row, action, button);
   });
 
-  // Keyboard triage: j/k to move, a save, s skip, e summary.
+  // Keyboard triage: j/k to move, a save, s skip, l summary.
   var focused = null;
   function focus(row) {
     if (focused) focused.classList.remove('focused');
@@ -589,8 +589,8 @@ const TRIAGE_SCRIPT = `
 
     if (event.key === 'j') { focus(rows[Math.min(index + 1, rows.length - 1)]); event.preventDefault(); }
     else if (event.key === 'k') { focus(rows[Math.max(index - 1, 0)]); event.preventDefault(); }
-    else if (focused && (event.key === 'a' || event.key === 's' || event.key === 'e')) {
-      var map = { a: 'save', s: 'skip', e: 'summary' };
+    else if (focused && (event.key === 'a' || event.key === 's' || event.key === 'l')) {
+      var map = { a: 'save', s: 'skip', l: 'summary' };
       var button = focused.querySelector('button[data-action="' + map[event.key] + '"]');
       if (button) { post(focused, map[event.key], button); event.preventDefault(); }
     }
@@ -694,7 +694,7 @@ ${chips}
 </form>
 <p>${pager}</p>
 <p>${summaryNote}
-  <span class="hint">Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> save, <kbd>s</kbd> skip, <kbd>e</kbd> summary.</span>
+  <span class="hint">Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> save, <kbd>s</kbd> skip, <kbd>l</kbd> summary.</span>
 </p>
 <script>${TRIAGE_SCRIPT}</script>`,
   );
