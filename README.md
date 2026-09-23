@@ -140,12 +140,13 @@ EPUB_MAX_IMAGE_WIDTH=1600
 EPUB_JPEG_QUALITY=85
 ```
 
-## Encrypted multi-user vault (in progress)
+## Encrypted vault (parked)
 
 `src/crypto/` and `src/accounts/` hold a standalone, tested encryption layer for a
 multi-user version: per-account master keys wrapped with Argon2id, AES-256-GCM envelope
 encryption per article, sealed metadata with a blind index for deduplication, and recovery
-codes. It is not yet wired into the server, which still runs single-user and unencrypted.
+codes. It is deliberately not wired in: the readers this serves speak only HTTP Basic, so
+decryption would be server-side, which buys stolen-disk protection and nothing more.
 
 See [docs/encryption.md](docs/encryption.md) for the threat model, the key hierarchy and
 the container format. `npm run vault-demo` walks the whole account lifecycle.
