@@ -2,7 +2,7 @@ import './env.js';
 
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { apiAuth, basicAuth } from './auth.js';
+import { apiAuth, basicAuth, rejectCrossOrigin } from './auth.js';
 import { config } from './config.js';
 import { startFeedPoller, stopFeedPoller } from './ingest/rss.js';
 import { startQueue, stopQueue } from './ingest/queue.js';
@@ -40,6 +40,7 @@ app.onError((error, c) => {
 });
 
 // Ingest API: bearer token or Basic.
+app.use('/api/*', rejectCrossOrigin);
 app.use('/api/*', apiAuth);
 app.route('/api', apiRoutes);
 

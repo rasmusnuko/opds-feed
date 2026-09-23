@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import { config } from './config.js';
 
 export type ArticleStatus = 'pending' | 'processing' | 'ready' | 'failed';
+export type ProspectStatus = 'pending' | 'saved' | 'skipped' | 'expired';
 
 export interface ArticleRow {
   id: string;
@@ -34,6 +35,31 @@ export interface ArticleRow {
   downloaded_at: string | null;
   download_count: number;
   feed_id: string | null;
+}
+
+/**
+ * A feed item that has been noticed but deliberately not fetched or converted. Holds only
+ * what the feed itself gave us -- a few hundred bytes against ~200 KB for an EPUB.
+ */
+export interface ProspectRow {
+  id: string;
+  feed_id: string;
+  guid: string;
+  url: string;
+  title: string;
+  author: string | null;
+  /** Description/summary text lifted straight from the feed. Costs nothing. */
+  teaser: string | null;
+  /** Filled in only when the user asks for it. */
+  summary: string | null;
+  summary_model: string | null;
+  summary_at: string | null;
+  summary_error: string | null;
+  published_at: string | null;
+  seen_at: string | null;
+  status: ProspectStatus;
+  decided_at: string | null;
+  article_id: string | null;
 }
 
 export interface FeedRow {
@@ -110,6 +136,31 @@ CREATE TABLE IF NOT EXISTS feeds (
   added_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS prospects (
+  id TEXT PRIMARY KEY,
+  feed_id TEXT NOT NULL REFERENCES feeds (id) ON DELETE CASCADE,
+  guid TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  author TEXT,
+  teaser TEXT,
+  summary TEXT,
+  summary_model TEXT,
+  summary_at TEXT,
+  summary_error TEXT,
+  published_at TEXT,
+  seen_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  decided_at TEXT,
+  article_id TEXT REFERENCES articles (id) ON DELETE SET NULL,
+  UNIQUE (feed_id, guid)
+);
+
+CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects (status, seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prospects_feed ON prospects (feed_id, status);
+
+-- Legacy ledger of items processed before prospects existed. Kept only so that upgrading
+-- does not re-surface a year of already-converted articles as fresh prospects.
 CREATE TABLE IF NOT EXISTS feed_items (
   feed_id TEXT NOT NULL REFERENCES feeds (id) ON DELETE CASCADE,
   guid TEXT NOT NULL,

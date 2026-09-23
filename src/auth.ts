@@ -98,3 +98,37 @@ export const apiAuth: MiddlewareHandler = async (c: Context, next: Next) => {
   // No Basic challenge here: a browser popping up a password box on a failed API call is noise.
   return unauthorized(c, false);
 };
+
+/**
+ * Browsers replay cached Basic credentials on cross-site requests, so a malicious page
+ * could drive the ingest API through a logged-in browser. Requests that carry no Origin
+ * header -- curl, phone shortcuts, anything using a bearer token -- are unaffected.
+ */
+export const rejectCrossOrigin: MiddlewareHandler = async (c: Context, next: Next) => {
+  if (c.req.method === 'GET' || c.req.method === 'HEAD') {
+    await next();
+    return undefined;
+  }
+
+  const origin = c.req.header('origin');
+  if (origin) {
+    try {
+      const expected = config.publicUrlConfigured
+        ? new URL(config.publicUrl).origin
+        : new URL(c.req.url).origin;
+      const forwardedHost = config.trustProxy ? c.req.header('x-forwarded-host') : undefined;
+      const host = forwardedHost?.split(',')[0]?.trim() ?? c.req.header('host');
+
+      const sameOrigin =
+        new URL(origin).origin === expected ||
+        (host !== undefined && new URL(origin).host === host);
+
+      if (!sameOrigin) return c.json({ error: 'Cross-origin request refused' }, 403);
+    } catch {
+      return c.json({ error: 'Bad Origin header' }, 403);
+    }
+  }
+
+  await next();
+  return undefined;
+};

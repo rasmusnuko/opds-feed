@@ -8,6 +8,7 @@ import {
   deleteArticle,
   deleteFeed,
   getArticle,
+  getFeed,
   getTags,
   listArticles,
   listFeeds,
@@ -17,6 +18,13 @@ import {
   type ArticleScope,
 } from '../store.js';
 import { removeArticleFiles } from '../storage.js';
+import { summarizeProspect } from '../ingest/summarize.js';
+import {
+  countProspects,
+  getProspect,
+  listProspects,
+  setStatus as setProspectStatus,
+} from '../prospects.js';
 import { tick } from '../ingest/queue.js';
 import { resolveBase } from '../util/base.js';
 import { collapseWhitespace, escapeHtml } from '../util/text.js';
@@ -245,4 +253,78 @@ apiRoutes.get('/status', (c) => {
     feeds: listFeeds().length,
     pollIntervalMinutes: config.rss.enabled ? config.rss.pollIntervalMinutes : null,
   });
+});
+
+/* ------------------------------------------------------------------ prospects */
+
+apiRoutes.get('/prospects', (c) => {
+  const status = (c.req.query('status') ?? 'pending') as 'pending' | 'saved' | 'skipped' | 'expired';
+  const limit = Math.min(200, Math.max(1, Number.parseInt(c.req.query('limit') ?? '50', 10) || 50));
+  const offset = Math.max(0, Number.parseInt(c.req.query('offset') ?? '0', 10) || 0);
+
+  const prospects = listProspects({
+    status,
+    feedId: c.req.query('feed') ?? null,
+    limit,
+    offset,
+  });
+
+  return c.json({
+    total: countProspects(status, c.req.query('feed') ?? null),
+    prospects: prospects.map((prospect) => ({
+      id: prospect.id,
+      feedId: prospect.feed_id,
+      url: prospect.url,
+      title: prospect.title,
+      author: prospect.author,
+      teaser: prospect.teaser,
+      summary: prospect.summary,
+      summaryModel: prospect.summary_model,
+      publishedAt: prospect.published_at,
+      seenAt: prospect.seen_at,
+      status: prospect.status,
+      articleId: prospect.article_id,
+    })),
+  });
+});
+
+apiRoutes.post('/prospects/:id/save', (c) => {
+  const prospect = getProspect(c.req.param('id'));
+  if (!prospect) return c.json({ error: 'Not found' }, 404);
+
+  try {
+    const feed = getFeed(prospect.feed_id);
+    const result = submitUrl(prospect.url, {
+      tags: feed?.tag ? [feed.tag] : [],
+      feedId: prospect.feed_id,
+      title: prospect.title,
+    });
+    setProspectStatus(prospect.id, 'saved', result.article.id);
+    return c.json({ id: prospect.id, status: 'saved', articleId: result.article.id });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Could not queue that URL' }, 400);
+  }
+});
+
+apiRoutes.post('/prospects/:id/skip', (c) => {
+  const prospect = getProspect(c.req.param('id'));
+  if (!prospect) return c.json({ error: 'Not found' }, 404);
+  setProspectStatus(prospect.id, 'skipped');
+  return c.json({ id: prospect.id, status: 'skipped' });
+});
+
+apiRoutes.post('/prospects/:id/summary', async (c) => {
+  const prospect = getProspect(c.req.param('id'));
+  if (!prospect) return c.json({ error: 'Not found' }, 404);
+
+  if (prospect.summary) {
+    return c.json({ id: prospect.id, summary: prospect.summary, model: prospect.summary_model, cached: true });
+  }
+
+  try {
+    const result = await summarizeProspect(prospect);
+    return c.json({ id: prospect.id, summary: result.summary, model: result.model, source: result.source });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'Could not summarise' }, 502);
+  }
 });

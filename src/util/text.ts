@@ -61,3 +61,40 @@ export function formatDate(iso: string | null): string {
   if (Number.isNaN(date.getTime())) return '';
   return date.toISOString().slice(0, 10);
 }
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  hellip: '…', mdash: '—', ndash: '–', middot: '·',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
+  laquo: '«', raquo: '»', deg: '°', pound: '£',
+  euro: '€', copy: '©', reg: '®', trade: '™',
+};
+
+export function decodeEntities(value: string): string {
+  return value.replace(/&(#x?[0-9a-f]+|[a-z][a-z0-9]*);/gi, (match, body: string) => {
+    if (body.startsWith('#')) {
+      const isHex = body[1]?.toLowerCase() === 'x';
+      const code = Number.parseInt(isHex ? body.slice(2) : body.slice(1), isHex ? 16 : 10);
+      if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff) return match;
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return match;
+      }
+    }
+    return NAMED_ENTITIES[body.toLowerCase()] ?? match;
+  });
+}
+
+/**
+ * Flattens the HTML that feed descriptions are full of into plain text. This is for
+ * teaser display only -- article bodies go through the real sanitiser in extract.ts.
+ */
+export function stripHtml(value: string): string {
+  const text = value
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, ' ')
+    .replace(/<[^>]*>/g, '');
+  return collapseWhitespace(decodeEntities(text));
+}

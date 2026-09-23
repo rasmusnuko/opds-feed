@@ -10,6 +10,7 @@ import {
   deleteArticle,
   deleteFeed,
   getArticle,
+  getFeed,
   listArticles,
   listFeeds,
   resetAttempts,
@@ -21,7 +22,20 @@ import { removeArticleFiles } from '../storage.js';
 import { parsePage, resolveBase } from '../util/base.js';
 import { collapseWhitespace } from '../util/text.js';
 import { parseHttpUrl } from '../util/url.js';
-import { articlesPage, feedsPage, helpPage } from './views.js';
+import { articlesPage, feedsPage, helpPage, prospectsPage } from './views.js';
+import type { ProspectStatus } from '../db.js';
+import { summariesAvailable } from '../ingest/summarize.js';
+import { summarizeProspect } from '../ingest/summarize.js';
+import {
+  countProspects,
+  getProspect,
+  isUndoable,
+  listProspects,
+  pendingByFeed,
+  prospectCounts,
+  setStatus as setProspectStatus,
+  skipMany,
+} from '../prospects.js';
 
 export const webRoutes = new Hono();
 
@@ -184,3 +198,181 @@ webRoutes.post('/feeds/poll', async (c) => {
 webRoutes.get('/help', (c) =>
   c.html(helpPage(resolveBase(c), config.auth.apiTokens[0] ?? null)),
 );
+
+/* ------------------------------------------------------------------ prospects */
+
+const PROSPECT_STATUSES: ProspectStatus[] = ['pending', 'saved', 'skipped', 'expired'];
+
+function parseStatus(value: string | undefined): ProspectStatus {
+  return PROSPECT_STATUSES.includes(value as ProspectStatus) ? (value as ProspectStatus) : 'pending';
+}
+
+/** The triage script sends Accept: application/json; a plain form post gets a redirect. */
+function wantsJson(c: Context): boolean {
+  return (c.req.header('accept') ?? '').includes('application/json');
+}
+
+function prospectRedirect(c: Context, message: { ok?: string; err?: string }): Response {
+  const status = c.req.query('status') ?? 'pending';
+  const params = new URLSearchParams({ status });
+  if (message.ok) params.set('ok', message.ok);
+  if (message.err) params.set('err', message.err);
+  return c.redirect(`/prospects?${params.toString()}`, 303);
+}
+
+webRoutes.get('/prospects', (c) => {
+  const status = parseStatus(c.req.query('status'));
+  const feedId = c.req.query('feed') || null;
+  const page = parsePage(c.req.query('page'));
+  const pageSize = config.prospects.pageSize;
+
+  const prospects = listProspects({
+    status,
+    feedId,
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+  });
+
+  return c.html(
+    prospectsPage({
+      base: resolveBase(c),
+      prospects,
+      status,
+      counts: prospectCounts(),
+      feeds: pendingByFeed(),
+      activeFeedId: feedId,
+      page,
+      hasNext: page * pageSize < countProspects(status, feedId),
+      summariesEnabled: summariesAvailable(),
+      undoable: isUndoable,
+      ok: c.req.query('ok'),
+      err: c.req.query('err'),
+    }),
+  );
+});
+
+/** Accepting a prospect is the only path that spends disk: it hands the URL to the queue. */
+webRoutes.post('/prospects/:id/save', (c) => {
+  const prospect = getProspect(c.req.param('id'));
+  if (!prospect) {
+    return wantsJson(c) ? c.json({ error: 'Not found' }, 404) : prospectRedirect(c, { err: 'Gone.' });
+  }
+
+  try {
+    const feed = getFeed(prospect.feed_id);
+    const result = submitUrl(prospect.url, {
+      tags: feed?.tag ? [feed.tag] : [],
+      feedId: prospect.feed_id,
+      title: prospect.title,
+    });
+    setProspectStatus(prospect.id, 'saved', result.article.id);
+
+    return wantsJson(c)
+      ? c.json({ id: prospect.id, status: 'saved', articleId: result.article.id })
+      : prospectRedirect(c, { ok: 'Saved — converting now.' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not queue that URL.';
+    log.warn('prospect save failed', { id: prospect.id, url: prospect.url, ...errorFields(error) });
+    return wantsJson(c) ? c.json({ error: message }, 400) : prospectRedirect(c, { err: message });
+  }
+});
+
+webRoutes.post('/prospects/:id/skip', (c) => {
+  const prospect = getProspect(c.req.param('id'));
+  if (!prospect) {
+    return wantsJson(c) ? c.json({ error: 'Not found' }, 404) : prospectRedirect(c, { err: 'Gone.' });
+  }
+  setProspectStatus(prospect.id, 'skipped');
+  return wantsJson(c)
+    ? c.json({ id: prospect.id, status: 'skipped' })
+    : prospectRedirect(c, { ok: 'Skipped.' });
+});
+
+webRoutes.post('/prospects/:id/undo', (c) => {
+  const prospect = getProspect(c.req.param('id'));
+  if (!prospect) {
+    return wantsJson(c) ? c.json({ error: 'Not found' }, 404) : prospectRedirect(c, { err: 'Gone.' });
+  }
+  setProspectStatus(prospect.id, 'pending');
+  return wantsJson(c)
+    ? c.json({ id: prospect.id, status: 'pending' })
+    : prospectRedirect(c, { ok: 'Back in the queue.' });
+});
+
+/**
+ * Fetches the article, summarises it and keeps only the summary. Synchronous on purpose:
+ * the user pressed the button and is waiting, and a few seconds is the expected cost.
+ */
+webRoutes.post('/prospects/:id/summary', async (c) => {
+  const prospect = getProspect(c.req.param('id'));
+  if (!prospect) {
+    return wantsJson(c) ? c.json({ error: 'Not found' }, 404) : prospectRedirect(c, { err: 'Gone.' });
+  }
+
+  if (prospect.summary) {
+    return wantsJson(c)
+      ? c.json({ id: prospect.id, summary: prospect.summary, model: prospect.summary_model, cached: true })
+      : prospectRedirect(c, { ok: 'Already summarised.' });
+  }
+
+  try {
+    const result = await summarizeProspect(prospect);
+    return wantsJson(c)
+      ? c.json({ id: prospect.id, summary: result.summary, model: result.model, source: result.source })
+      : prospectRedirect(c, { ok: 'Summarised.' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not summarise that article.';
+    return wantsJson(c) ? c.json({ error: message }, 502) : prospectRedirect(c, { err: message });
+  }
+});
+
+webRoutes.post('/prospects/bulk', async (c) => {
+  const body = await c.req.parseBody({ all: true });
+  const action = typeof body.action === 'string' ? body.action : '';
+  const feedId = typeof body.feed === 'string' && body.feed.length > 0 ? body.feed : null;
+
+  const raw = body.ids;
+  const ids = Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : typeof raw === 'string' ? [raw] : [];
+
+  if (action === 'skip-older') {
+    const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const count = skipMany({ feedId, olderThanIso: cutoff });
+    return prospectRedirect(c, { ok: `Skipped ${count} older than 7 days.` });
+  }
+
+  if (action === 'skip-feed') {
+    if (!feedId) return prospectRedirect(c, { err: 'Pick a feed first.' });
+    const count = skipMany({ feedId });
+    return prospectRedirect(c, { ok: `Skipped ${count} from that feed.` });
+  }
+
+  if (ids.length === 0) return prospectRedirect(c, { err: 'Nothing selected.' });
+
+  if (action === 'skip') {
+    for (const id of ids) setProspectStatus(id, 'skipped');
+    return prospectRedirect(c, { ok: `Skipped ${ids.length}.` });
+  }
+
+  if (action === 'save') {
+    let saved = 0;
+    for (const id of ids) {
+      const prospect = getProspect(id);
+      if (!prospect) continue;
+      try {
+        const feed = getFeed(prospect.feed_id);
+        const result = submitUrl(prospect.url, {
+          tags: feed?.tag ? [feed.tag] : [],
+          feedId: prospect.feed_id,
+          title: prospect.title,
+        });
+        setProspectStatus(id, 'saved', result.article.id);
+        saved += 1;
+      } catch (error) {
+        log.warn('bulk save skipped an item', { id, ...errorFields(error) });
+      }
+    }
+    return prospectRedirect(c, { ok: `Saved ${saved} — converting now.` });
+  }
+
+  return prospectRedirect(c, { err: 'Unknown action.' });
+});
