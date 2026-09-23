@@ -2,10 +2,11 @@ import { XMLParser } from 'fast-xml-parser';
 import { config } from '../config.js';
 import type { FeedRow } from '../db.js';
 import { errorFields, log } from '../logger.js';
-import { isFeedItemSeen, listFeeds, markFeedItemSeen, recordFeedPoll } from '../store.js';
-import { collapseWhitespace } from '../util/text.js';
+import { isFeedItemSeen, listFeeds, recordFeedPoll } from '../store.js';
+import { addProspect, expireOldProspects } from '../prospects.js';
+import { cleanUrl, hostLabel } from '../util/url.js';
+import { collapseWhitespace, stripHtml, truncate } from '../util/text.js';
 import { decodeHtml, fetchUrl } from './fetch.js';
-import { submitUrl } from './submit.js';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -17,6 +18,10 @@ interface FeedItem {
   url: string;
   guid: string;
   title: string | null;
+  /** Description text the feed already gives us. The cheapest summary there is. */
+  teaser: string | null;
+  author: string | null;
+  publishedAt: string | null;
 }
 
 function asArray<T>(value: T | T[] | undefined): T[] {
@@ -55,6 +60,55 @@ function atomLink(entry: Record<string, unknown>): string | null {
   return fallback;
 }
 
+/** Feeds put the teaser in any of several elements; take the richest one available. */
+function teaserOf(node: Record<string, unknown>, keys: string[]): string | null {
+  let best: string | null = null;
+
+  for (const key of keys) {
+    const raw = node[key];
+    const text =
+      typeof raw === 'string'
+        ? raw
+        : raw && typeof raw === 'object'
+          ? ((raw as Record<string, unknown>)['#text'] as string | undefined)
+          : undefined;
+    if (typeof text !== 'string') continue;
+
+    const clean = stripHtml(text);
+    if (clean.length > (best?.length ?? 0)) best = clean;
+  }
+
+  return best ? truncate(best, 500) : null;
+}
+
+function authorOf(node: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const raw = node[key];
+    if (typeof raw === 'string') {
+      const clean = collapseWhitespace(raw);
+      if (clean.length > 0) return truncate(clean, 120);
+    }
+    if (raw && typeof raw === 'object') {
+      const name = (raw as Record<string, unknown>).name;
+      if (typeof name === 'string' && name.trim().length > 0) return truncate(collapseWhitespace(name), 120);
+    }
+  }
+  return null;
+}
+
+function dateOf(node: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const raw = node[key];
+    if (typeof raw !== 'string' && typeof raw !== 'number') continue;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) continue;
+    const year = parsed.getUTCFullYear();
+    if (year < 1990 || year > 2200) continue;
+    return parsed.toISOString();
+  }
+  return null;
+}
+
 export interface ParsedFeed {
   title: string | null;
   items: FeedItem[];
@@ -80,7 +134,14 @@ export function parseFeed(xml: string): ParsedFeed {
       const link = textOf(item.link) ?? textOf(item['@_rdf:about']);
       if (!link) continue;
       const guidValue = textOf(item.guid) ?? link;
-      items.push({ url: link, guid: guidValue, title: textOf(item.title) });
+      items.push({
+        url: link,
+        guid: guidValue,
+        title: textOf(item.title),
+        teaser: teaserOf(item, ['content:encoded', 'description', 'summary']),
+        author: authorOf(item, ['dc:creator', 'author', 'creator']),
+        publishedAt: dateOf(item, ['pubDate', 'dc:date', 'date', 'published']),
+      });
     }
   } else if (atom) {
     title = textOf(atom.title);
@@ -89,7 +150,14 @@ export function parseFeed(xml: string): ParsedFeed {
       const entry = raw as Record<string, unknown>;
       const link = atomLink(entry);
       if (!link) continue;
-      items.push({ url: link, guid: textOf(entry.id) ?? link, title: textOf(entry.title) });
+      items.push({
+        url: link,
+        guid: textOf(entry.id) ?? link,
+        title: textOf(entry.title),
+        teaser: teaserOf(entry, ['content', 'summary']),
+        author: authorOf(entry, ['author']),
+        publishedAt: dateOf(entry, ['published', 'updated']),
+      });
     }
   }
 
@@ -103,30 +171,47 @@ export async function fetchFeed(url: string): Promise<ParsedFeed> {
   return parseFeed(decodeHtml(response));
 }
 
+/**
+ * Records what a feed is offering. Deliberately does not fetch, convert or store anything:
+ * items sit in the prospect queue until the user saves one.
+ */
 async function pollFeed(feed: FeedRow): Promise<number> {
   const parsed = await fetchFeed(feed.url);
-  let queued = 0;
+  let added = 0;
 
-  // Newest first in most feeds; cap so a first poll of a large archive does not flood the queue.
+  // Newest first in most feeds; cap so a first poll of a large archive stays manageable.
   for (const item of parsed.items.slice(0, config.rss.maxItemsPerPoll)) {
+    // Items converted before the prospect queue existed must not reappear as new.
     if (isFeedItemSeen(feed.id, item.guid)) continue;
+
+    let url: string;
     try {
-      submitUrl(item.url, {
-        tags: feed.tag ? [feed.tag] : [],
-        feedId: feed.id,
-        title: item.title,
-      });
-      queued += 1;
+      url = cleanUrl(item.url);
     } catch (error) {
-      log.warn('feed item rejected', { feed: feed.url, item: item.url, ...errorFields(error) });
+      log.warn('feed item has an unusable link', { feed: feed.url, item: item.url, ...errorFields(error) });
+      continue;
     }
-    markFeedItemSeen(feed.id, item.guid);
+
+    const wasAdded = addProspect({
+      feedId: feed.id,
+      guid: item.guid,
+      url,
+      title: item.title ?? hostLabel(url) ?? url,
+      author: item.author,
+      teaser: item.teaser,
+      publishedAt: item.publishedAt,
+    });
+
+    if (wasAdded) added += 1;
   }
 
-  return queued;
+  return added;
 }
 
 export async function pollAllFeeds(): Promise<void> {
+  const expired = expireOldProspects();
+  if (expired > 0) log.info('expired undecided prospects', { count: expired });
+
   const feeds = listFeeds().filter((feed) => feed.enabled === 1);
   if (feeds.length === 0) return;
 
@@ -134,9 +219,9 @@ export async function pollAllFeeds(): Promise<void> {
 
   for (const feed of feeds) {
     try {
-      const queued = await pollFeed(feed);
+      const added = await pollFeed(feed);
       recordFeedPoll(feed.id, null);
-      if (queued > 0) log.info('feed queued new articles', { feed: feed.url, queued });
+      if (added > 0) log.info('feed offered new prospects', { feed: feed.url, added });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       recordFeedPoll(feed.id, message);

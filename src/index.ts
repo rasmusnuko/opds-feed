@@ -2,6 +2,7 @@ import './env.js';
 
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { csrf } from 'hono/csrf';
 import { HTTPException } from 'hono/http-exception';
 import { apiAuth, basicAuth } from './auth.js';
 import { config } from './config.js';
@@ -10,6 +11,7 @@ import { startQueue, stopQueue } from './ingest/queue.js';
 import { errorFields, log } from './logger.js';
 import { opdsRoutes } from './opds/routes.js';
 import { countUsers, seedUsersFromEnv } from './store.js';
+import { resolveBase } from './util/base.js';
 import { apiRoutes } from './routes/api.js';
 import { fileRoutes } from './routes/files.js';
 import { webRoutes } from './web/routes.js';
@@ -51,6 +53,14 @@ app.onError((error, c) => {
 });
 
 // Ingest API: bearer token or Basic.
+// Browsers replay cached Basic credentials cross-site. Hono's csrf checks Origin on the
+// body types a browser can send without a preflight — forms and text/plain — and
+// leaves JSON alone.
+const apiCsrf = csrf({ origin: (origin, c) => origin === new URL(resolveBase(c)).origin });
+// Only when a browser is talking: a browser always sends Origin on a cross-site POST,
+// and curl, iOS Shortcuts and bearer-token clients never send one at all. Hono's csrf
+// would refuse those for lacking it, which is the README's own example.
+app.use('/api/*', (c, next) => (c.req.header('origin') ? apiCsrf(c, next) : next()));
 app.use('/api/*', apiAuth);
 app.route('/api', apiRoutes);
 

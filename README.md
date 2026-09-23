@@ -96,8 +96,11 @@ the background, usually within a few seconds. The **Connect** page in the web UI
 prints the exact iOS Shortcuts recipe and a ready-made bookmarklet with your token
 already in it.
 
-RSS subscriptions live on the **Feeds** page: every new item in a subscribed feed is
-fetched, converted and shelved automatically, optionally under a tag.
+RSS subscriptions live on the **Feeds** page. New feed items do **not** convert
+automatically — they arrive on the **Prospects** page as candidates, with the title and
+teaser the feed published, and nothing is fetched or stored until you press Save. An
+optional Summary button reads the article, summarises it and keeps only the summary. See
+[docs/prospects.md](docs/prospects.md).
 
 ## API
 
@@ -109,6 +112,10 @@ fetched, converted and shelved automatically, optionally under a tag.
 | `GET` | `/api/articles/:id` | One article. |
 | `POST` | `/api/articles/:id/retry` | Fetch and convert it again. |
 | `DELETE` | `/api/articles/:id` | Delete the article and its files. |
+| `GET` | `/api/prospects` | List feed candidates awaiting a decision. |
+| `POST` | `/api/prospects/:id/save` | Convert and store a prospect. |
+| `POST` | `/api/prospects/:id/skip` | Discard a prospect. |
+| `POST` | `/api/prospects/:id/summary` | Summarise it so you can decide. |
 | `GET`/`POST` | `/api/feeds` | List or subscribe to RSS/Atom feeds. |
 | `DELETE` | `/api/feeds/:id` | Unsubscribe. |
 | `POST` | `/api/feeds/poll` | Poll every feed now. |

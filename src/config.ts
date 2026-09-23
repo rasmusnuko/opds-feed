@@ -116,7 +116,31 @@ export const config = {
   rss: {
     enabled: bool('RSS_ENABLED', true),
     pollIntervalMinutes: int('RSS_POLL_INTERVAL_MINUTES', 30, 1),
-    maxItemsPerPoll: int('RSS_MAX_ITEMS_PER_POLL', 10, 1),
+    maxItemsPerPoll: int('RSS_MAX_ITEMS_PER_POLL', 25, 1),
+  },
+
+  prospects: {
+    // Undecided items are dropped after this long, so the queue cannot become a guilt pile.
+    expiryDays: int('PROSPECT_EXPIRY_DAYS', 14, 1),
+    pageSize: int('PROSPECT_PAGE_SIZE', 50, 1),
+    // How long a decision can be reversed from the UI.
+    undoWindowHours: int('PROSPECT_UNDO_WINDOW_HOURS', 24, 1),
+  },
+
+  // On-demand summaries. Any OpenAI-compatible chat-completions endpoint works:
+  // OpenRouter by default, or a local Ollama / llama.cpp / vLLM server.
+  summary: {
+    enabled: bool('SUMMARY_ENABLED', false),
+    endpoint: (env('SUMMARY_ENDPOINT', 'https://openrouter.ai/api/v1')!).replace(/\/+$/, ''),
+    // Falls back to the tagger's key: one OpenRouter account, one variable to rotate.
+    apiKey: env('SUMMARY_API_KEY') ?? env('OPENROUTER_API_KEY'),
+    model: env('SUMMARY_MODEL', 'google/gemini-2.0-flash-001')!,
+    // Journalism is inverted-pyramid: the opening is nearly always enough to judge
+    // interest, and truncating here is the main cost and latency lever.
+    maxInputChars: int('SUMMARY_MAX_INPUT_CHARS', 6000, 500),
+    maxOutputTokens: int('SUMMARY_MAX_OUTPUT_TOKENS', 200, 32),
+    temperature: Number(env('SUMMARY_TEMPERATURE', '0.3')),
+    timeoutMs: int('SUMMARY_TIMEOUT_MS', 60_000, 5_000),
   },
 
   // AI tagging. No key means no tagging, not a startup failure.

@@ -1,6 +1,7 @@
 import { config } from '../config.js';
-import type { ArticleRow, FeedRow, UserRow } from '../db.js';
-import { escapeHtml, formatBytes, formatDate } from '../util/text.js';
+import type { ArticleRow, FeedRow, ProspectRow, ProspectStatus, UserRow } from '../db.js';
+import { escapeHtml, formatBytes, formatDate, truncate } from '../util/text.js';
+import { hostLabel } from '../util/url.js';
 
 const STYLES = `
 /* Palette lifted from openrouter.ai's stylesheet (shadcn-style HSL tokens): indigo
@@ -78,11 +79,55 @@ dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem
 dl.kv dt { color: var(--muted); }
 dl.kv dd { margin: 0; word-break: break-all; }
 footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.85rem; }
+
+.tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.tabs a {
+  padding: 0.35rem 0.8rem; border-radius: 999px; text-decoration: none;
+  border: 1px solid var(--border); color: var(--muted); font-size: 0.9rem;
+}
+.tabs a.active { color: var(--text); border-color: var(--accent); }
+.chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.chips a {
+  font-size: 0.8rem; padding: 0.2rem 0.6rem; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted); text-decoration: none;
+}
+.chips a.active { color: var(--text); border-color: var(--accent); }
+
+ul.prospects { list-style: none; margin: 0; padding: 0; }
+ul.prospects li { border-bottom: 1px solid var(--border); padding: 0.85rem 0; }
+ul.prospects li:last-child { border-bottom: 0; }
+ul.prospects li.decided { opacity: 0.45; }
+ul.prospects li.focused { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+.prospect-head { display: flex; gap: 0.7rem; align-items: flex-start; }
+.prospect-head input[type=checkbox] { margin-top: 0.35rem; flex: 0 0 auto; }
+.prospect-main { flex: 1 1 auto; min-width: 0; }
+.prospect-title { font-weight: 600; line-height: 1.35; word-wrap: break-word; }
+.prospect-title a { text-decoration: none; }
+.prospect-meta { color: var(--muted); font-size: 0.82rem; margin-top: 0.15rem; }
+.prospect-teaser { font-size: 0.9rem; margin-top: 0.4rem; color: var(--text); }
+.prospect-actions { display: flex; gap: 0.35rem; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+.prospect-actions form { display: inline; }
+.summary {
+  margin-top: 0.6rem; padding: 0.6rem 0.75rem; border-left: 2px solid var(--accent);
+  background: var(--bg); border-radius: 0 6px 6px 0; font-size: 0.9rem;
+}
+.summary .label {
+  display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); margin-bottom: 0.25rem;
+}
+.summary.error { border-left-color: var(--danger); color: var(--danger); }
+.bulk { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+.hint { color: var(--muted); font-size: 0.8rem; }
+kbd {
+  font-family: ui-monospace, monospace; font-size: 0.75rem; border: 1px solid var(--border);
+  border-radius: 4px; padding: 0.05rem 0.3rem;
+}
 `;
 
 export function layout(title: string, activePath: string, base: string, body: string): string {
   const nav = [
     ['/', 'Articles'],
+    ['/prospects', 'Prospects'],
     ['/feeds', 'Feeds'],
     ['/tags', 'Tags'],
     ['/users', 'Users'],
@@ -382,7 +427,7 @@ export function usersPage(opts: {
   <p class="item-meta" style="margin:0">
     These are the credentials your e-reader uses. Changing a password here takes effect
     immediately &mdash; readers that stored the old one will ask again.
-    <code>OPDS_USERNAME</code> and <code>OPDS_PASSWORD_HASH</code> in <code>.env</code>
+    <code>OPDS_USERNAME</code> and <code>OPDS_PASSWORD</code> in <code>.env</code>
     only seed the first account on an empty database; after that this page is the
     source of truth.
   </p>
@@ -409,5 +454,248 @@ export function tagsPage(opts: { base: string; tags: string[]; enabled: boolean;
   </form>
   <p class="item-meta" style="margin-bottom:0">${status}</p>
 </div>`,
+  );
+}
+
+/* ------------------------------------------------------------------ prospects */
+
+function prospectRow(prospect: ProspectRow, options: { summaries: boolean; undoable: boolean }): string {
+  const meta = [
+    prospect.author,
+    formatDate(prospect.published_at ?? prospect.seen_at),
+    hostLabel(prospect.url),
+  ]
+    .filter((bit): bit is string => Boolean(bit && bit.length > 0))
+    .join(' · ');
+
+  const teaser = prospect.teaser
+    ? `<div class="prospect-teaser">${escapeHtml(truncate(prospect.teaser, 320))}</div>`
+    : '';
+
+  const summaryBlock = prospect.summary
+    ? `<div class="summary" data-summary><span class="label">Summary${
+        prospect.summary_model ? ` · ${escapeHtml(prospect.summary_model)}` : ''
+      }</span>${escapeHtml(prospect.summary)}</div>`
+    : prospect.summary_error
+      ? `<div class="summary error" data-summary><span class="label">Summary failed</span>${escapeHtml(
+          prospect.summary_error,
+        )}</div>`
+      : '<div data-summary hidden></div>';
+
+  // Every action is a real form post, so the page works with JavaScript disabled; the
+  // script below upgrades them to in-place fetches for fast triage.
+  const action = (path: string, label: string, className = 'secondary'): string =>
+    `<form method="post" action="/prospects/${escapeHtml(prospect.id)}/${path}">` +
+    `<button class="${className}" type="submit" data-action="${path}">${escapeHtml(label)}</button></form>`;
+
+  const actions =
+    prospect.status === 'pending'
+      ? [
+          action('save', 'Save', 'secondary'),
+          action('skip', 'Skip', 'danger'),
+          options.summaries ? action('summary', 'Summary') : '',
+        ]
+      : [options.undoable ? action('undo', 'Undo') : ''];
+
+  return `<li id="p-${escapeHtml(prospect.id)}" data-prospect="${escapeHtml(prospect.id)}"${
+    prospect.status === 'pending' ? '' : ' class="decided"'
+  }>
+  <div class="prospect-head">
+    ${prospect.status === 'pending' ? `<input type="checkbox" name="ids" value="${escapeHtml(prospect.id)}" aria-label="Select"/>` : '<span class="thumb" style="width:0;flex:0"></span>'}
+    <div class="prospect-main">
+      <div class="prospect-title"><a href="${escapeHtml(prospect.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(
+        prospect.title,
+      )}</a></div>
+      <div class="prospect-meta">${escapeHtml(meta)}</div>
+      ${teaser}
+      ${summaryBlock}
+    </div>
+    <div class="prospect-actions">${actions.filter((item) => item.length > 0).join('')}</div>
+  </div>
+</li>`;
+}
+
+const TRIAGE_SCRIPT = `
+(function () {
+  var list = document.querySelector('ul.prospects');
+  if (!list) return;
+
+  function setSummary(row, html, isError) {
+    var box = row.querySelector('[data-summary]');
+    if (!box) return;
+    box.hidden = false;
+    box.className = isError ? 'summary error' : 'summary';
+    box.innerHTML = html;
+  }
+
+  function post(row, action, button) {
+    var id = row.getAttribute('data-prospect');
+    var original = button ? button.textContent : '';
+    if (button) { button.disabled = true; button.textContent = action === 'summary' ? 'Reading\\u2026' : '\\u2026'; }
+
+    return fetch('/prospects/' + id + '/' + action, {
+      method: 'POST',
+      headers: { 'accept': 'application/json' },
+    }).then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        if (button) { button.disabled = false; button.textContent = original; }
+        if (action === 'summary') {
+          if (res.ok && res.body.summary) {
+            setSummary(row, '<span class="label">Summary' + (res.body.model ? ' \\u00b7 ' + res.body.model : '') +
+              (res.body.source === 'teaser' ? ' \\u00b7 from feed description' : '') + '</span>' +
+              res.body.summary.replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }), false);
+          } else {
+            setSummary(row, '<span class="label">Summary failed</span>' + (res.body.error || 'Unknown error'), true);
+          }
+          return;
+        }
+        // Save and Skip both remove the row from the pending list.
+        row.style.transition = 'opacity .15s';
+        row.style.opacity = '0';
+        setTimeout(function () { row.remove(); }, 150);
+      })
+      .catch(function () {
+        if (button) { button.disabled = false; button.textContent = original; }
+        setSummary(row, '<span class="label">Failed</span>Network error', true);
+      });
+  }
+
+  list.addEventListener('submit', function (event) {
+    var form = event.target;
+    if (!form.matches('li form')) return;
+    var button = form.querySelector('button');
+    var action = button && button.getAttribute('data-action');
+    var row = form.closest('li');
+    if (!action || !row) return;
+    event.preventDefault();
+    post(row, action, button);
+  });
+
+  // Keyboard triage: j/k to move, a save, s skip, e summary.
+  var focused = null;
+  function focus(row) {
+    if (focused) focused.classList.remove('focused');
+    focused = row;
+    if (row) { row.classList.add('focused'); row.scrollIntoView({ block: 'nearest' }); }
+  }
+  document.addEventListener('keydown', function (event) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    var tag = (event.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+
+    var rows = Array.prototype.slice.call(list.querySelectorAll('li'));
+    if (rows.length === 0) return;
+    var index = focused ? rows.indexOf(focused) : -1;
+
+    if (event.key === 'j') { focus(rows[Math.min(index + 1, rows.length - 1)]); event.preventDefault(); }
+    else if (event.key === 'k') { focus(rows[Math.max(index - 1, 0)]); event.preventDefault(); }
+    else if (focused && (event.key === 'a' || event.key === 's' || event.key === 'e')) {
+      var map = { a: 'save', s: 'skip', e: 'summary' };
+      var button = focused.querySelector('button[data-action="' + map[event.key] + '"]');
+      if (button) { post(focused, map[event.key], button); event.preventDefault(); }
+    }
+  });
+})();
+`;
+
+export interface ProspectsPageOptions {
+  base: string;
+  prospects: ProspectRow[];
+  status: ProspectStatus;
+  counts: Record<ProspectStatus, number>;
+  feeds: { feed_id: string; title: string | null; url: string; count: number }[];
+  activeFeedId: string | null;
+  page: number;
+  hasNext: boolean;
+  summariesEnabled: boolean;
+  undoable: (prospect: ProspectRow) => boolean;
+  ok?: string;
+  err?: string;
+}
+
+export function prospectsPage(options: ProspectsPageOptions): string {
+  const query = (status: ProspectStatus): string =>
+    `/prospects?status=${status}${options.activeFeedId ? `&feed=${encodeURIComponent(options.activeFeedId)}` : ''}`;
+
+  const tabs = (['pending', 'saved', 'skipped', 'expired'] as ProspectStatus[])
+    .map(
+      (status) =>
+        `<a href="${query(status)}" class="${status === options.status ? 'active' : ''}">${
+          status[0]!.toUpperCase() + status.slice(1)
+        } (${options.counts[status]})</a>`,
+    )
+    .join('');
+
+  const chips =
+    options.feeds.length > 1
+      ? `<div class="chips">
+      <a href="/prospects?status=${options.status}" class="${options.activeFeedId ? '' : 'active'}">All feeds</a>
+      ${options.feeds
+        .map(
+          (feed) =>
+            `<a href="/prospects?status=${options.status}&feed=${encodeURIComponent(feed.feed_id)}" class="${
+              feed.feed_id === options.activeFeedId ? 'active' : ''
+            }">${escapeHtml(truncate(feed.title ?? feed.url, 32))} (${feed.count})</a>`,
+        )
+        .join('')}
+    </div>`
+      : '';
+
+  const items =
+    options.prospects.length > 0
+      ? `<ul class="prospects">${options.prospects
+          .map((prospect) =>
+            prospectRow(prospect, {
+              summaries: options.summariesEnabled,
+              undoable: options.undoable(prospect),
+            }),
+          )
+          .join('\n')}</ul>`
+      : `<p class="hint">Nothing here. New feed items appear as prospects; nothing is fetched or converted until you save it.</p>`;
+
+  const bulk =
+    options.status === 'pending' && options.prospects.length > 0
+      ? `<div class="bulk">
+    <button class="secondary" type="submit" name="action" value="skip">Skip selected</button>
+    <button class="secondary" type="submit" name="action" value="save">Save selected</button>
+    <span class="hint">or</span>
+    <button class="secondary" type="submit" name="action" value="skip-older">Skip older than 7 days</button>
+    ${
+      options.activeFeedId
+        ? '<button class="danger" type="submit" name="action" value="skip-feed">Skip all from this feed</button>'
+        : ''
+    }
+  </div>`
+      : '';
+
+  const pager = [
+    options.page > 1 ? `<a href="${query(options.status)}&page=${options.page - 1}">← Newer</a>` : '',
+    options.hasNext ? `<a href="${query(options.status)}&page=${options.page + 1}">Older →</a>` : '',
+  ]
+    .filter((link) => link.length > 0)
+    .join(' &nbsp; ');
+
+  const summaryNote = options.summariesEnabled
+    ? '<span class="hint">Summary fetches the article, summarises it, and keeps only the summary.</span>'
+    : '<span class="hint">Summaries are off. Set SUMMARY_ENABLED and SUMMARY_API_KEY to enable the Summary button.</span>';
+
+  return layout(
+    'Prospects',
+    '/prospects',
+    options.base,
+    `${flash(options.ok, options.err)}
+<div class="tabs">${tabs}</div>
+${chips}
+<form method="post" action="/prospects/bulk">
+  <input type="hidden" name="status" value="${escapeHtml(options.status)}"/>
+  <input type="hidden" name="feed" value="${escapeHtml(options.activeFeedId ?? '')}"/>
+  ${bulk}
+  <div class="panel">${items}</div>
+</form>
+<p>${pager}</p>
+<p>${summaryNote}
+  <span class="hint">Keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> save, <kbd>s</kbd> skip, <kbd>e</kbd> summary.</span>
+</p>
+<script>${TRIAGE_SCRIPT}</script>`,
   );
 }
