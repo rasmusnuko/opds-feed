@@ -23,6 +23,14 @@ import {
 
 export const opdsRoutes = new Hono({ strict: false });
 
+// Every page here is behind Basic auth and changes underneath the reader. Without this a
+// browser will happily serve yesterday's /prospects on refresh — Firefox did exactly that,
+// showing rows the server had already skipped.
+opdsRoutes.use('*', async (c, next) => {
+  await next();
+  c.header('Cache-Control', 'no-store');
+});
+
 function recentSince(): string {
   return new Date(Date.now() - config.feed.recentDays * 24 * 60 * 60 * 1000).toISOString();
 }

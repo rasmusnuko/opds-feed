@@ -54,6 +54,14 @@ const PAGE_SIZE = 30;
 
 // Browsers replay cached Basic credentials on cross-site form posts. The origin to
 // compare against is the public one, not the URL nginx handed us over plain HTTP.
+
+// Every page here is behind Basic auth and changes underneath the reader. Without this a
+// browser will happily serve yesterday's /prospects on refresh — Firefox did exactly that,
+// showing rows the server had already skipped.
+webRoutes.use('*', async (c, next) => {
+  await next();
+  c.header('Cache-Control', 'no-store');
+});
 webRoutes.use('*', csrf({ origin: (origin, c) => origin === new URL(resolveBase(c)).origin }));
 
 function redirect(c: Context, path: string, message: { ok?: string; err?: string }): Response {
