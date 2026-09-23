@@ -121,6 +121,7 @@ function articleEntry(article: ArticleRow, base: string, tags: string[]): string
     article.site,
     article.reading_minutes > 0 ? `${article.reading_minutes} min read` : null,
     article.epub_size ? formatBytes(article.epub_size) : null,
+    article.paywall ? '⚠ paywall stub' : null,
   ].filter((bit): bit is string => Boolean(bit && bit.length > 0));
 
   const summary = [summaryBits.join(' · '), article.excerpt ?? '']

@@ -35,6 +35,8 @@ export interface ArticleRow {
   downloaded_at: string | null;
   download_count: number;
   feed_id: string | null;
+  /** Why this looks like a paywall stub rather than the article; null when it reads fine. */
+  paywall: string | null;
 }
 
 export interface UserRow {
@@ -118,7 +120,8 @@ CREATE TABLE IF NOT EXISTS articles (
   thumb_path TEXT,
   downloaded_at TEXT,
   download_count INTEGER NOT NULL DEFAULT 0,
-  feed_id TEXT
+  feed_id TEXT,
+  paywall TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles (status);
@@ -198,6 +201,7 @@ function addColumnIfMissing(table: string, column: string, definition: string): 
 
 addColumnIfMissing('articles', 'canonical_url', 'TEXT');
 addColumnIfMissing('prospects', 'decided_by', 'TEXT');
+addColumnIfMissing('articles', 'paywall', 'TEXT');
 
 export function nowIso(): string {
   return new Date().toISOString();

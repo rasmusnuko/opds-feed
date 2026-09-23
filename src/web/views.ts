@@ -206,7 +206,7 @@ function articleItem(article: ArticleRow, tags: string[]): string {
   return `<li>
   ${thumb}
   <div class="item-main">
-    <div class="item-title">${titleHtml} ${statusPill(article)}</div>
+    <div class="item-title">${titleHtml} ${statusPill(article)}${article.paywall ? ` <span class="pill failed" title="${escapeHtml(article.paywall)}">paywall</span>` : ''}</div>
     <div class="item-meta">${escapeHtml(meta)}</div>
     <div class="item-meta"><a href="${escapeHtml(source)}">${escapeHtml(source)}</a></div>
     ${tags.length > 0 ? `<div class="item-meta">${tags.map((t) => `<span class="pill">${escapeHtml(t)}</span>`).join(' ')}</div>` : ''}

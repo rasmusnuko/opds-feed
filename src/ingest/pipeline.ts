@@ -7,6 +7,7 @@ import { readingMinutes, slugify, truncate } from '../util/text.js';
 import { hostLabel } from '../util/url.js';
 import { buildEpub, serializeBody } from './epub.js';
 import { extractArticle } from './extract.js';
+import { detectPaywall } from './paywall.js';
 import { tagArticle } from './tagger.js';
 import { decodeHtml, fetchUrl } from './fetch.js';
 import { generateCover, prepareImages } from './images.js';
@@ -95,6 +96,7 @@ export async function processArticle(article: ArticleRow): Promise<ReadyUpdate> 
       epubSize: epub.byteLength,
       coverPath: coverName,
       thumbPath: thumbName,
+      paywall: detectPaywall(html, extracted.textContent, extracted.wordCount).reason,
     };
 
     markReady(article.id, update);

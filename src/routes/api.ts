@@ -94,6 +94,7 @@ function articleJson(article: ArticleRow, base: string): Record<string, unknown>
     readingMinutes: article.reading_minutes,
     sizeBytes: article.epub_size,
     error: article.error,
+    paywall: article.paywall,
     attempts: article.attempts,
     downloadedAt: article.downloaded_at,
     download: article.status === 'ready' ? `${base}/download/${article.id}.epub` : null,

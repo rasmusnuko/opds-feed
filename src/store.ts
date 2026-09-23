@@ -187,6 +187,7 @@ export interface ReadyUpdate {
   epubSize: number;
   coverPath: string | null;
   thumbPath: string | null;
+  paywall: string | null;
 }
 
 export function markReady(id: string, update: ReadyUpdate): void {
@@ -194,7 +195,7 @@ export function markReady(id: string, update: ReadyUpdate): void {
     `UPDATE articles
      SET status = 'ready', url = ?, canonical_url = ?, title = ?, author = ?, site = ?, excerpt = ?, language = ?,
          published_at = ?, word_count = ?, reading_minutes = ?, epub_path = ?, epub_size = ?,
-         cover_path = ?, thumb_path = ?, error = NULL, next_attempt_at = NULL, updated_at = ?
+         cover_path = ?, thumb_path = ?, paywall = ?, error = NULL, next_attempt_at = NULL, updated_at = ?
      WHERE id = ?`,
   ).run(
     update.url,
@@ -211,6 +212,7 @@ export function markReady(id: string, update: ReadyUpdate): void {
     update.epubSize,
     update.coverPath,
     update.thumbPath,
+    update.paywall,
     nowIso(),
     id,
   );
