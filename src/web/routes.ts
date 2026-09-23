@@ -351,7 +351,7 @@ webRoutes.post('/prospects/:id/save', (c) => {
       feedId: prospect.feed_id,
       title: prospect.title,
     });
-    setProspectStatus(prospect.id, 'saved', result.article.id);
+    setProspectStatus(prospect.id, 'saved', result.article.id, basicUser(c));
 
     return wantsJson(c)
       ? c.json({ id: prospect.id, status: 'saved', articleId: result.article.id })
@@ -368,7 +368,7 @@ webRoutes.post('/prospects/:id/skip', (c) => {
   if (!prospect) {
     return wantsJson(c) ? c.json({ error: 'Not found' }, 404) : prospectRedirect(c, { err: 'Gone.' });
   }
-  setProspectStatus(prospect.id, 'skipped');
+  setProspectStatus(prospect.id, 'skipped', null, basicUser(c));
   return wantsJson(c)
     ? c.json({ id: prospect.id, status: 'skipped' })
     : prospectRedirect(c, { ok: 'Skipped.' });
@@ -422,20 +422,20 @@ webRoutes.post('/prospects/bulk', async (c) => {
 
   if (action === 'skip-older') {
     const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString();
-    const count = skipMany({ feedId, olderThanIso: cutoff });
+    const count = skipMany({ feedId, olderThanIso: cutoff, by: basicUser(c) });
     return prospectRedirect(c, { ok: `Skipped ${count} older than 7 days.` });
   }
 
   if (action === 'skip-feed') {
     if (!feedId) return prospectRedirect(c, { err: 'Pick a feed first.' });
-    const count = skipMany({ feedId });
+    const count = skipMany({ feedId, by: basicUser(c) });
     return prospectRedirect(c, { ok: `Skipped ${count} from that feed.` });
   }
 
   if (ids.length === 0) return prospectRedirect(c, { err: 'Nothing selected.' });
 
   if (action === 'skip') {
-    for (const id of ids) setProspectStatus(id, 'skipped');
+    for (const id of ids) setProspectStatus(id, 'skipped', null, basicUser(c));
     return prospectRedirect(c, { ok: `Skipped ${ids.length}.` });
   }
 
@@ -451,7 +451,7 @@ webRoutes.post('/prospects/bulk', async (c) => {
           feedId: prospect.feed_id,
           title: prospect.title,
         });
-        setProspectStatus(id, 'saved', result.article.id);
+        setProspectStatus(id, 'saved', result.article.id, basicUser(c));
         saved += 1;
       } catch (error) {
         log.warn('bulk save skipped an item', { id, ...errorFields(error) });

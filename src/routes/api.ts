@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import { basicUser } from '../auth.js';
 import { config } from '../config.js';
 import { pollAllFeeds, fetchFeed } from '../ingest/rss.js';
 import { submitUrl } from '../ingest/submit.js';
@@ -288,6 +289,8 @@ apiRoutes.get('/prospects', (c) => {
       summaryModel: prospect.summary_model,
       publishedAt: prospect.published_at,
       seenAt: prospect.seen_at,
+      decidedAt: prospect.decided_at,
+      decidedBy: prospect.decided_by,
       status: prospect.status,
       articleId: prospect.article_id,
     })),
@@ -305,7 +308,7 @@ apiRoutes.post('/prospects/:id/save', (c) => {
       feedId: prospect.feed_id,
       title: prospect.title,
     });
-    setProspectStatus(prospect.id, 'saved', result.article.id);
+    setProspectStatus(prospect.id, 'saved', result.article.id, basicUser(c) ?? 'api-token');
     return c.json({ id: prospect.id, status: 'saved', articleId: result.article.id });
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : 'Could not queue that URL' }, 400);
@@ -315,7 +318,7 @@ apiRoutes.post('/prospects/:id/save', (c) => {
 apiRoutes.post('/prospects/:id/skip', (c) => {
   const prospect = getProspect(c.req.param('id'));
   if (!prospect) return c.json({ error: 'Not found' }, 404);
-  setProspectStatus(prospect.id, 'skipped');
+  setProspectStatus(prospect.id, 'skipped', null, basicUser(c) ?? 'api-token');
   return c.json({ id: prospect.id, status: 'skipped' });
 });
 

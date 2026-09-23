@@ -66,6 +66,8 @@ export interface ProspectRow {
   seen_at: string | null;
   status: ProspectStatus;
   decided_at: string | null;
+  /** Account that decided, 'api-token' for a bearer client, 'system' for expiry. The signal a recommender would want. */
+  decided_by: string | null;
   article_id: string | null;
 }
 
@@ -169,6 +171,7 @@ CREATE TABLE IF NOT EXISTS prospects (
   seen_at TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   decided_at TEXT,
+  decided_by TEXT,
   article_id TEXT REFERENCES articles (id) ON DELETE SET NULL,
   UNIQUE (feed_id, guid)
 );
@@ -194,6 +197,7 @@ function addColumnIfMissing(table: string, column: string, definition: string): 
 }
 
 addColumnIfMissing('articles', 'canonical_url', 'TEXT');
+addColumnIfMissing('prospects', 'decided_by', 'TEXT');
 
 export function nowIso(): string {
   return new Date().toISOString();

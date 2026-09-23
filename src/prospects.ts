@@ -102,11 +102,12 @@ export function pendingByFeed(): { feed_id: string; title: string | null; url: s
     .all() as { feed_id: string; title: string | null; url: string; count: number }[];
 }
 
-export function setStatus(id: string, status: ProspectStatus, articleId?: string | null): void {
+export function setStatus(id: string, status: ProspectStatus, articleId?: string | null, by?: string | null): void {
+  const decided = status !== 'pending';
   db.prepare(
-    `UPDATE prospects SET status = ?, decided_at = ?, article_id = COALESCE(?, article_id)
+    `UPDATE prospects SET status = ?, decided_at = ?, decided_by = ?, article_id = COALESCE(?, article_id)
      WHERE id = ?`,
-  ).run(status, status === 'pending' ? null : nowIso(), articleId ?? null, id);
+  ).run(status, decided ? nowIso() : null, decided ? (by ?? null) : null, articleId ?? null, id);
 }
 
 export function storeSummary(id: string, summary: string, model: string): void {
@@ -124,7 +125,7 @@ export function storeSummaryError(id: string, error: string): void {
 }
 
 /** Bulk skip, used by "skip everything from this feed" and "skip older than". */
-export function skipMany(options: { feedId?: string | null; olderThanIso?: string | null }): number {
+export function skipMany(options: { feedId?: string | null; olderThanIso?: string | null; by?: string | null }): number {
   const conditions = [`status = 'pending'`];
   const params: unknown[] = [];
 
@@ -138,8 +139,8 @@ export function skipMany(options: { feedId?: string | null; olderThanIso?: strin
   }
 
   return db
-    .prepare(`UPDATE prospects SET status = 'skipped', decided_at = ? WHERE ${conditions.join(' AND ')}`)
-    .run(nowIso(), ...params).changes;
+    .prepare(`UPDATE prospects SET status = 'skipped', decided_at = ?, decided_by = ? WHERE ${conditions.join(' AND ')}`)
+    .run(nowIso(), options.by ?? null, ...params).changes;
 }
 
 /**
@@ -154,7 +155,7 @@ export function expireOldProspects(): number {
   const cutoff = new Date(Date.now() - config.prospects.expiryDays * 86_400_000).toISOString();
   return db
     .prepare(
-      `UPDATE prospects SET status = 'expired', decided_at = ?
+      `UPDATE prospects SET status = 'expired', decided_at = ?, decided_by = 'system'
        WHERE status = 'pending' AND seen_at < ?`,
     )
     .run(nowIso(), cutoff).changes;
