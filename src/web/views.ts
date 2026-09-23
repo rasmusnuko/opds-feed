@@ -2,6 +2,7 @@ import { config } from '../config.js';
 import type { ArticleRow, FeedRow, ProspectRow, ProspectStatus, UserRow } from '../db.js';
 import { escapeHtml, formatBytes, formatDate, truncate } from '../util/text.js';
 import { hostLabel } from '../util/url.js';
+import { FEED_SUGGESTIONS } from './feedSuggestions.js';
 
 const STYLES = `
 /* Palette lifted from openrouter.ai's stylesheet (shadcn-style HSL tokens): indigo
@@ -78,6 +79,19 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px
 dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0; }
 dl.kv dt { color: var(--muted); }
 dl.kv dd { margin: 0; word-break: break-all; }
+details.cat { border-bottom: 1px solid var(--border); }
+details.cat:last-child { border-bottom: 0; }
+details.cat summary { cursor: pointer; padding: 0.7rem 0; font-weight: 600; list-style: none; display: flex; gap: 0.6rem; align-items: baseline; }
+details.cat summary::-webkit-details-marker { display: none; }
+details.cat summary::before { content: '›'; color: var(--muted); display: inline-block; transition: transform .15s; }
+details.cat[open] summary::before { transform: rotate(90deg); }
+details.cat summary .item-meta { font-weight: 400; }
+details.cat .blurb { margin: 0 0 0.5rem 1.1rem; }
+ul.suggest { list-style: none; margin: 0 0 0.8rem 1.1rem; padding: 0; }
+ul.suggest li { display: flex; gap: 0.8rem; align-items: center; padding: 0.4rem 0; }
+ul.suggest .item-main { flex: 1 1 auto; min-width: 0; }
+h2.with-action { display: flex; align-items: baseline; gap: 0.8rem; }
+h2.with-action form { display: inline; }
 footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.85rem; }
 
 .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
@@ -304,6 +318,28 @@ export function feedsPage(options: { base: string; feeds: FeedRow[]; ok?: string
     ? `Polling every ${config.rss.pollIntervalMinutes} minutes, at most ${config.rss.maxItemsPerPoll} new items per feed per poll.`
     : 'Feed polling is disabled (RSS_ENABLED=false).';
 
+  const subscribed = new Set(options.feeds.map((feed) => feed.url.replace(/\/+$/, '')));
+  const suggestions = FEED_SUGGESTIONS.map((cat) => {
+    const items = cat.feeds
+      .map((f) => {
+        const have = subscribed.has(f.url.replace(/\/+$/, ''));
+        const action = have
+          ? '<span class="pill ready">subscribed</span>'
+          : `<form method="post" action="/feeds/add"><input type="hidden" name="url" value="${escapeHtml(f.url)}"/>` +
+            `<input type="hidden" name="tag" value="${escapeHtml(f.tags)}"/><button class="secondary" type="submit">Subscribe</button></form>`;
+        const meta = [hostLabel(f.url), f.note ?? null, f.paywall ? 'paywall' : null, `tags: ${f.tags}`]
+          .filter((bit): bit is string => Boolean(bit))
+          .join(' · ');
+        return `<li><div class="item-main"><div class="item-title">${escapeHtml(f.title)}</div>` +
+          `<div class="item-meta">${escapeHtml(meta)}</div></div><div class="item-actions">${action}</div></li>`;
+      })
+      .join('');
+    const count = cat.feeds.filter((f) => subscribed.has(f.url.replace(/\/+$/, ''))).length;
+    return `<details class="cat"><summary>${escapeHtml(cat.name)} <span class="item-meta">${cat.feeds.length} feeds${count > 0 ? `, ${count} subscribed` : ''}</span></summary>` +
+      (cat.blurb ? `<p class="item-meta blurb">${escapeHtml(cat.blurb)}</p>` : '') +
+      `<ul class="suggest">${items}</ul></details>`;
+  }).join('');
+
   return layout(
     'Feeds',
     '/feeds',
@@ -317,11 +353,12 @@ export function feedsPage(options: { base: string; feeds: FeedRow[]; ok?: string
   </form>
 </div>
 
-<h2>Subscriptions</h2>
+<h2 class="with-action">Subscriptions <form method="post" action="/feeds/poll"><button class="secondary" type="submit">Poll now</button></form></h2>
 <div class="panel">${rows}</div>
-<p class="item-meta">${escapeHtml(polling)}
-  <form method="post" action="/feeds/poll" style="display:inline"><button class="secondary" type="submit">Poll now</button></form>
-</p>`,
+<p class="item-meta">${escapeHtml(polling)}</p>
+
+<h2>Suggestions</h2>
+<div class="panel">${suggestions}</div>`,
   );
 }
 
