@@ -5,30 +5,35 @@ import { hostLabel } from '../util/url.js';
 import { FEED_SUGGESTIONS } from './feedSuggestions.js';
 
 const STYLES = `
-/* Palette lifted from openrouter.ai's stylesheet (shadcn-style HSL tokens): indigo
-   primary, near-black zinc dark theme, Plus Jakarta Sans. Just the colours — no marks. */
+/* Palette from gruz0.github.io/linkedin-relationship-navigator: warm paper, forest green,
+   Georgia headings over Inter. That site has no dark theme; the dark values below are
+   derived in the same hue family, not copied. */
 :root {
-  --bg: #fcfcfd;
-  --panel: #ffffff;
-  --text: #1c2024;
-  --muted: hsl(240 3.8% 46.1%);
-  --border: hsl(240 5.9% 90%);
-  --accent: hsl(239 84% 67%);
-  --accent-fg: hsl(240 50% 99.2%);
-  --success: hsl(154.9 100% 37.5%);
-  --danger: hsl(346.8 77.2% 49.8%);
+  --bg: #f2f0e9;
+  --panel: #fbfaf6;
+  --text: #1d2926;
+  --muted: #69736e;
+  --border: #dddcd3;
+  --accent: #174c42;
+  --accent-hover: #286b5d;
+  --accent-fg: #ffffff;
+  --success: #286b5d;
+  --danger: #913c35;
+  --radius-control: 10px;
+  --radius-panel: 14px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: hsl(224 7% 4%);
-    --panel: hsl(240 10% 3.9%);
-    --text: hsl(206 6% 88%);
-    --muted: hsl(240 5% 64.9%);
-    --border: hsl(240 4.7% 24.9%);
-    --accent: hsl(239 84% 67%);
-    --accent-fg: hsl(240 50% 99.2%);
-    --success: hsl(142 71% 65%);
-    --danger: hsl(346.8 77.2% 60%);
+    --bg: #131b18;
+    --panel: #1b2622;
+    --text: #e6e8e3;
+    --muted: #9aa19d;
+    --border: #2f3d38;
+    --accent: #81a79d;
+    --accent-hover: #9dbdb3;
+    --accent-fg: #0f1a17;
+    --success: #81a79d;
+    --danger: #d08a83;
   }
 }
 * { box-sizing: border-box; }
@@ -36,27 +41,28 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.5 "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 16px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 .wrap { max-width: 900px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 header { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: baseline; justify-content: space-between; margin-bottom: 1.5rem; }
-h1 { font-size: 1.3rem; margin: 0; }
-h2 { font-size: 1rem; margin: 2rem 0 0.75rem; }
+h1 { font-size: 1.5rem; margin: 0; font-family: Georgia, "Times New Roman", serif; font-weight: 600; letter-spacing: -0.01em; }
+h2 { font-size: 1.1rem; margin: 2rem 0 0.75rem; font-family: Georgia, "Times New Roman", serif; font-weight: 600; }
 nav a { color: var(--muted); text-decoration: none; margin-left: 1rem; }
 nav a:hover, nav a.active { color: var(--text); }
 a { color: var(--accent); }
-.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 1rem; box-shadow: 0 8px 28px #1d29260e; }
 form.add { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 input[type=url], input[type=text] {
   flex: 1 1 18rem; min-width: 0; padding: 0.6rem 0.7rem;
-  border: 1px solid var(--border); border-radius: 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-control);
   background: var(--bg); color: var(--text); font-size: 1rem;
 }
 input.tags { flex: 0 1 10rem; }
 button {
-  padding: 0.6rem 1.1rem; border: 0; border-radius: 8px; cursor: pointer;
+  padding: 0.6rem 1.1rem; border: 0; border-radius: var(--radius-control); cursor: pointer;
   background: var(--accent); color: var(--accent-fg); font-size: 1rem; font-weight: 600;
 }
+button:hover { background: var(--accent-hover); }
 button.secondary { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 400; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
 button.danger { background: transparent; color: var(--danger); border: 1px solid var(--border); font-weight: 400; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
 .flash { padding: 0.7rem 0.9rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border); }
@@ -160,7 +166,7 @@ export function layout(title: string, activePath: string, base: string, body: st
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${escapeHtml(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"/>
 <style>${STYLES}</style>
 </head>
 <body>
