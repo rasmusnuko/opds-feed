@@ -1,6 +1,8 @@
 import { config } from './config.js';
 import { db, nowIso, type ProspectRow, type ProspectStatus } from './db.js';
+import { findByUrlKey } from './store.js';
 import { newId } from './util/ids.js';
+import { urlKey } from './util/url.js';
 
 /**
  * The prospect queue.
@@ -21,21 +23,37 @@ export interface ProspectInput {
 }
 
 /**
- * Inserts a prospect unless this feed has already offered the item. Returns false when it
- * was a duplicate, so the poller can report how many are genuinely new.
+ * Offers a prospect, unless the same story is already known. Returns false when it was a
+ * duplicate, so the poller can report how many are genuinely new.
+ *
+ * Deduplication is global rather than per feed: subscribing to two views of the same
+ * source (two Hacker News feeds, a site's main and section feeds) must not make you
+ * triage the same article twice. An article you have already converted suppresses the
+ * prospect entirely -- you decided once.
  */
 export function addProspect(input: ProspectInput): boolean {
+  let key: string;
+  try {
+    key = urlKey(input.url);
+  } catch {
+    key = input.url;
+  }
+
+  if (findByUrlKey(key)) return false; // already in the library
+  if (findProspectByUrlKey(key)) return false; // already offered, by this feed or another
+
   const result = db
     .prepare(
       `INSERT OR IGNORE INTO prospects
-         (id, feed_id, guid, url, title, author, teaser, published_at, seen_at, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         (id, feed_id, guid, url, url_key, title, author, teaser, published_at, seen_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     )
     .run(
       newId(),
       input.feedId,
       input.guid,
       input.url,
+      key,
       input.title,
       input.author,
       input.teaser,
@@ -44,6 +62,10 @@ export function addProspect(input: ProspectInput): boolean {
     );
 
   return result.changes > 0;
+}
+
+export function findProspectByUrlKey(key: string): ProspectRow | undefined {
+  return db.prepare('SELECT * FROM prospects WHERE url_key = ?').get(key) as ProspectRow | undefined;
 }
 
 export function getProspect(id: string): ProspectRow | undefined {

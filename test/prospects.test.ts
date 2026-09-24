@@ -18,7 +18,8 @@ import {
   setStatus,
   skipMany,
 } from '../src/prospects.js';
-import { addFeed } from '../src/store.js';
+import { addFeed, createArticle } from '../src/store.js';
+import { urlKey } from '../src/util/url.js';
 import { decodeEntities, stripHtml } from '../src/util/text.js';
 
 const RSS = `<?xml version="1.0"?><rss version="2.0"
@@ -160,6 +161,46 @@ describe('prospect queue', () => {
   });
 });
 
+describe('duplicate suppression across feeds', () => {
+  const feedA = addFeed('https://hnrss.org/frontpage', 'HN front page', null);
+  const feedB = addFeed('https://hnrss.org/newest?points=100', 'HN newest 100+', null);
+
+  const offer = (feedId: string, guid: string, url: string, teaser: string): boolean =>
+    addProspect({ feedId, guid, url, title: 'Shared Story', author: null, teaser, publishedAt: null });
+
+  it('offers a story once even when two feeds both carry it', () => {
+    // Two Hacker News views of the same item: same article, same HN id, but each feed
+    // snapshots the score at its own poll time, which is what made the duplicates visible.
+    assert.equal(offer(feedA.id, 'https://news.ycombinator.com/item?id=1', 'https://example.com/story', 'Points: 249'), true);
+    assert.equal(offer(feedB.id, 'https://news.ycombinator.com/item?id=1', 'https://example.com/story', 'Points: 161'), false);
+
+    const rows = listProspects({ status: 'pending', limit: 50, offset: 0 }).filter(
+      (row) => row.url === 'https://example.com/story',
+    );
+    assert.equal(rows.length, 1);
+    assert.match(rows[0]!.teaser!, /249/, 'the first offer is the one kept');
+  });
+
+  it('treats tracking-param variants of a URL as the same story', () => {
+    assert.equal(offer(feedA.id, 'guid-a', 'https://example.com/tracked', 't'), true);
+    assert.equal(offer(feedB.id, 'guid-b', 'https://example.com/tracked?utm_source=hn&fbclid=x', 't'), false);
+  });
+
+  it('does not offer something already in the library', () => {
+    const url = 'https://example.com/already-have-it';
+    createArticle({
+      url,
+      requestedUrl: url,
+      urlKey: urlKey(url),
+      title: 'Already saved',
+      site: 'example.com',
+      tags: [],
+    });
+
+    assert.equal(offer(feedA.id, 'guid-saved', url, 't'), false, 'converted articles suppress the prospect');
+  });
+});
+
 describe('summariser', () => {
   let server: http.Server;
   const requests: Record<string, unknown>[] = [];
@@ -201,10 +242,13 @@ describe('summariser', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
+  // Each fixture needs its own URL: prospects now dedupe globally, so reusing one URL
+  // would silently return the first prospect for every case.
   const prospectFor = (url: string, teaser: string | null): ProspectRow => {
     const feed = addFeed('https://example.com/summary-feed.xml', 'Summary Fixture', null);
     const guid = `s-${Math.random().toString(36).slice(2)}`;
-    addProspect({ feedId: feed.id, guid, url, title: 'A Real Article', author: null, teaser, publishedAt: null });
+    const unique = `${url}${url.includes('?') ? '&' : '?'}n=${guid}`;
+    addProspect({ feedId: feed.id, guid, url: unique, title: 'A Real Article', author: null, teaser, publishedAt: null });
     return db.prepare('SELECT * FROM prospects WHERE guid = ?').get(guid) as ProspectRow;
   };
 

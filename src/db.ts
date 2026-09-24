@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { config } from './config.js';
+import { urlKey } from './util/url.js';
 
 export type ArticleStatus = 'pending' | 'processing' | 'ready' | 'failed';
 export type ProspectStatus = 'pending' | 'saved' | 'skipped' | 'expired';
@@ -46,6 +47,8 @@ export interface ProspectRow {
   feed_id: string;
   guid: string;
   url: string;
+  /** Normalised form of `url`, shared with articles, so the same story dedupes across feeds. */
+  url_key: string | null;
   title: string;
   author: string | null;
   /** Description/summary text lifted straight from the feed. Costs nothing. */
@@ -141,6 +144,7 @@ CREATE TABLE IF NOT EXISTS prospects (
   feed_id TEXT NOT NULL REFERENCES feeds (id) ON DELETE CASCADE,
   guid TEXT NOT NULL,
   url TEXT NOT NULL,
+  url_key TEXT,
   title TEXT NOT NULL,
   author TEXT,
   teaser TEXT,
@@ -177,6 +181,61 @@ function addColumnIfMissing(table: string, column: string, definition: string): 
 }
 
 addColumnIfMissing('articles', 'canonical_url', 'TEXT');
+addColumnIfMissing('prospects', 'url_key', 'TEXT');
+
+/**
+ * `UNIQUE (feed_id, guid)` only stops a feed offering the same item twice. Two feeds that
+ * both carry a story -- two Hacker News views, say -- each produced their own prospect,
+ * snapshotted at their own poll time. Articles have always deduped globally on url_key;
+ * this gives prospects the same key, backfills it, collapses the duplicates that already
+ * exist, and then enforces it.
+ */
+function backfillProspectUrlKeys(): void {
+  const rows = db.prepare('SELECT id, url FROM prospects WHERE url_key IS NULL').all() as {
+    id: string;
+    url: string;
+  }[];
+
+  if (rows.length > 0) {
+    const update = db.prepare('UPDATE prospects SET url_key = ? WHERE id = ?');
+    db.transaction(() => {
+      for (const row of rows) {
+        try {
+          update.run(urlKey(row.url), row.id);
+        } catch {
+          // An unparseable URL keeps its raw form as the key; it still dedupes against itself.
+          update.run(row.url, row.id);
+        }
+      }
+    })();
+  }
+
+  // Keep one row per URL, preferring any that already carries a decision so that
+  // collapsing duplicates can never resurface something the user has dealt with.
+  db.exec(`
+    DELETE FROM prospects WHERE url_key IS NOT NULL AND id NOT IN (
+      SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY url_key
+          ORDER BY CASE status
+                     WHEN 'saved' THEN 0 WHEN 'skipped' THEN 1
+                     WHEN 'expired' THEN 2 ELSE 3 END,
+                   seen_at
+        ) AS rn
+        FROM prospects WHERE url_key IS NOT NULL
+      ) WHERE rn = 1
+    )
+  `);
+
+  try {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_prospects_url_key ON prospects (url_key)');
+  } catch {
+    // Not fatal: addProspect checks explicitly too, so a startup here must not take the
+    // server down over historical data.
+  }
+}
+
+backfillProspectUrlKeys();
 
 export function nowIso(): string {
   return new Date().toISOString();
