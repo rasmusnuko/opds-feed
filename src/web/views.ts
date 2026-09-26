@@ -95,7 +95,11 @@ ul.prospects li.focused { outline: 2px solid var(--accent); outline-offset: 4px;
 .prospect-head { display: flex; gap: 0.7rem; align-items: flex-start; }
 .prospect-head input[type=checkbox] { margin-top: 0.35rem; flex: 0 0 auto; }
 .prospect-main { flex: 1 1 auto; min-width: 0; }
-.prospect-title { font-weight: 600; line-height: 1.35; word-wrap: break-word; }
+/* Feed teasers are largely bare URLs -- Hacker News ships "Article URL: ... Comments
+   URL: ..." -- and an unbroken URL is wider than a phone, so it must be allowed to break
+   mid-token or it overflows the row and drags the layout with it. */
+.prospect-title, .prospect-meta, .prospect-teaser, .summary { overflow-wrap: anywhere; }
+.prospect-title { font-weight: 600; line-height: 1.35; }
 .prospect-title a { text-decoration: none; }
 .prospect-meta { color: var(--muted); font-size: 0.82rem; margin-top: 0.15rem; }
 .prospect-teaser { font-size: 0.9rem; margin-top: 0.4rem; color: var(--text); }
@@ -115,6 +119,30 @@ ul.prospects li.focused { outline: 2px solid var(--accent); outline-offset: 4px;
 kbd {
   font-family: ui-monospace, monospace; font-size: 0.75rem; border: 1px solid var(--border);
   border-radius: 4px; padding: 0.05rem 0.3rem;
+}
+
+/* On a phone the three action buttons cannot share a row with the text: held at their
+   natural width they wrapped into a narrow column and squeezed the content to under half
+   the screen. Below this width they move to their own row under the item instead, which
+   also puts them within thumb reach. */
+@media (max-width: 640px) {
+  .prospect-head { flex-wrap: wrap; }
+  /* basis 0 rather than auto: with a content-sized basis the text column no longer fits
+     beside the checkbox and wraps, stranding the checkbox alone on its own line. */
+  .prospect-main { flex: 1 1 0; }
+  .prospect-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    margin-top: 0.6rem;
+    padding-left: 1.7rem; /* line up with the text, clear of the checkbox */
+  }
+  .prospect-actions button {
+    min-height: 2.4rem; /* a comfortable tap target */
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+  }
+  .summary { font-size: 0.95rem; padding: 0.7rem 0.8rem; }
+  .tabs a, .chips a { padding: 0.4rem 0.85rem; }
 }
 `;
 
