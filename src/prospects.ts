@@ -42,6 +42,13 @@ export function addProspect(input: ProspectInput): boolean {
   if (findByUrlKey(key)) return false; // already in the library
   if (findProspectByUrlKey(key)) return false; // already offered, by this feed or another
 
+  // Two views of one source can point at different pages for the same story -- Hacker
+  // News feeds can link either the article or the discussion -- so the URLs differ and
+  // URL matching cannot merge them. Their guid is the same item URL in both, though.
+  // Only trusted when the guid is globally unique by construction: a feed using bare
+  // counters would otherwise suppress unrelated items from other feeds.
+  if (isGloballyUniqueGuid(input.guid) && findProspectByGuid(input.guid)) return false;
+
   const result = db
     .prepare(
       `INSERT OR IGNORE INTO prospects
@@ -66,6 +73,19 @@ export function addProspect(input: ProspectInput): boolean {
 
 export function findProspectByUrlKey(key: string): ProspectRow | undefined {
   return db.prepare('SELECT * FROM prospects WHERE url_key = ?').get(key) as ProspectRow | undefined;
+}
+
+export function findProspectByGuid(guid: string): ProspectRow | undefined {
+  return db.prepare('SELECT * FROM prospects WHERE guid = ?').get(guid) as ProspectRow | undefined;
+}
+
+/**
+ * Whether a guid identifies an item across the whole internet rather than just within its
+ * own feed. Absolute URLs and URNs qualify; "1042" or "post-7" do not, and matching those
+ * across feeds would merge unrelated articles.
+ */
+function isGloballyUniqueGuid(guid: string): boolean {
+  return /^(https?:\/\/|urn:|tag:)/i.test(guid.trim());
 }
 
 export function getProspect(id: string): ProspectRow | undefined {

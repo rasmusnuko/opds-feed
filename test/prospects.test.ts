@@ -186,6 +186,19 @@ describe('duplicate suppression across feeds', () => {
     assert.equal(offer(feedB.id, 'guid-b', 'https://example.com/tracked?utm_source=hn&fbclid=x', 't'), false);
   });
 
+  it('merges two feeds that link different pages for the same item', () => {
+    // Hacker News can link the article or the discussion; the guid is the item either way.
+    const hnItem = 'https://news.ycombinator.com/item?id=49817615';
+    assert.equal(offer(feedA.id, hnItem, 'https://blog.google/gemini-tts', 'Points: 249'), true);
+    assert.equal(offer(feedB.id, hnItem, hnItem, 'Points: 161'), false, 'same item, different link');
+  });
+
+  it('does not merge unrelated items that share a weak guid', () => {
+    // A feed numbering its own posts must not suppress another feed's post 42.
+    assert.equal(offer(feedA.id, '42', 'https://one.example/post', 't'), true);
+    assert.equal(offer(feedB.id, '42', 'https://two.example/different-post', 't'), true);
+  });
+
   it('does not offer something already in the library', () => {
     const url = 'https://example.com/already-have-it';
     createArticle({
